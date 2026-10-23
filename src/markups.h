@@ -75,6 +75,11 @@ public:
 
     QJsonObject toJson() const;
     void fromJson(const QJsonObject &object);
+    // A detached copy, never saved, for reading off the GUI thread.
+    void adopt(const QJsonObject &object, int sheetCount) {
+        m_sheetCount = sheetCount;
+        fromJson(object);
+    }
 
 signals:
     void changed();

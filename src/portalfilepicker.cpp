@@ -10,6 +10,7 @@
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDir>
+#include <QFileInfo>
 #include <QRandomGenerator>
 #include <QStandardPaths>
 
@@ -27,6 +28,23 @@ struct PortalFileFilter {
 };
 
 using PortalFileFilters = QList<PortalFileFilter>;
+
+// The portal's combo-box "choices" option: (id, label, [(option-id, option-label)], initial).
+struct PortalChoiceOption {
+    QString id;
+    QString label;
+};
+
+using PortalChoiceOptions = QList<PortalChoiceOption>;
+
+struct PortalChoice {
+    QString id;
+    QString label;
+    PortalChoiceOptions options;
+    QString initial;
+};
+
+using PortalChoices = QList<PortalChoice>;
 
 QDBusArgument &operator<<(QDBusArgument &argument, const PortalFilterRule &rule) {
     argument.beginStructure();
@@ -56,12 +74,44 @@ const QDBusArgument &operator>>(const QDBusArgument &argument, PortalFileFilter 
     return argument;
 }
 
+QDBusArgument &operator<<(QDBusArgument &argument, const PortalChoiceOption &option) {
+    argument.beginStructure();
+    argument << option.id << option.label;
+    argument.endStructure();
+    return argument;
+}
+
+const QDBusArgument &operator>>(const QDBusArgument &argument, PortalChoiceOption &option) {
+    argument.beginStructure();
+    argument >> option.id >> option.label;
+    argument.endStructure();
+    return argument;
+}
+
+QDBusArgument &operator<<(QDBusArgument &argument, const PortalChoice &choice) {
+    argument.beginStructure();
+    argument << choice.id << choice.label << choice.options << choice.initial;
+    argument.endStructure();
+    return argument;
+}
+
+const QDBusArgument &operator>>(const QDBusArgument &argument, PortalChoice &choice) {
+    argument.beginStructure();
+    argument >> choice.id >> choice.label >> choice.options >> choice.initial;
+    argument.endStructure();
+    return argument;
+}
+
 void registerPortalFilterTypes() {
     static const bool registered = [] {
         qDBusRegisterMetaType<PortalFilterRule>();
         qDBusRegisterMetaType<PortalFilterRules>();
         qDBusRegisterMetaType<PortalFileFilter>();
         qDBusRegisterMetaType<PortalFileFilters>();
+        qDBusRegisterMetaType<PortalChoiceOption>();
+        qDBusRegisterMetaType<PortalChoiceOptions>();
+        qDBusRegisterMetaType<PortalChoice>();
+        qDBusRegisterMetaType<PortalChoices>();
         return true;
     }();
     Q_UNUSED(registered);
@@ -115,6 +165,29 @@ void PortalFilePicker::openPdf(const QString &title) {
     options.insert(QStringLiteral("current_filter"), QVariant::fromValue(pdfFilter()));
 
     requestFile(QStringLiteral("OpenFile"), title, options, Action::Open);
+}
+
+void PortalFilePicker::savePdf(const QUrl &suggestedUrl, const QString &title, bool offerMarkedOnly) {
+    const QFileInfo target(suggestedUrl.toLocalFile());
+    const PortalFileFilter pdfOnly{QCoreApplication::translate("PortalFilePicker", "PDF"), {{0, QStringLiteral("*.pdf")}}};
+
+    QVariantMap options;
+    options.insert(QStringLiteral("accept_label"), tr("Export"));
+    options.insert(QStringLiteral("modal"), true);
+    options.insert(QStringLiteral("current_folder"), portalPathBytes(target.absolutePath()));
+    options.insert(QStringLiteral("current_name"), target.fileName());
+    options.insert(QStringLiteral("filters"), QVariant::fromValue(PortalFileFilters{pdfOnly}));
+    options.insert(QStringLiteral("current_filter"), QVariant::fromValue(pdfOnly));
+    // A "Sheets" combo in the save dialog, when some sheets have no markups.
+    if (offerMarkedOnly) {
+        const PortalChoiceOptions scopes{{QStringLiteral("all"), tr("All sheets")},
+                                         {QStringLiteral("marked"), tr("Marked-up sheets only")}};
+        options.insert(QStringLiteral("choices"),
+                       QVariant::fromValue(PortalChoices{{QStringLiteral("sheets"), tr("Sheets"), scopes,
+                                                          QStringLiteral("all")}}));
+    }
+
+    requestFile(QStringLiteral("SaveFile"), title, options, Action::Save);
 }
 
 bool PortalFilePicker::connectToRequestPath(const QString &path) {
@@ -221,8 +294,28 @@ void PortalFilePicker::handleResponse(uint response, const QVariantMap &results)
     if (uris.isEmpty())
         return;
 
-    if (action == Action::Open)
+    if (action == Action::Open) {
         emit openSelected(QUrl(uris.first()));
+        return;
+    }
+
+    // The chosen scope rides along in the response: [("sheets", "marked")].
+    bool markedOnly = false;
+    const QVariant choices = results.value(QStringLiteral("choices"));
+    if (choices.canConvert<QDBusArgument>()) {
+        const QDBusArgument argument = choices.value<QDBusArgument>();
+        argument.beginArray();
+        while (!argument.atEnd()) {
+            QString id, value;
+            argument.beginStructure();
+            argument >> id >> value;
+            argument.endStructure();
+            if (id == QStringLiteral("sheets"))
+                markedOnly = value == QStringLiteral("marked");
+        }
+        argument.endArray();
+    }
+    emit saveSelected(QUrl(uris.first()), markedOnly);
 }
 
 void PortalFilePicker::clearPending() {

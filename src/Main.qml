@@ -84,6 +84,22 @@ ApplicationWindow {
 
     // The markup tool in use; "pan" looks around and picks markups.
     property string tool: "pan"
+    // Says how an export went, for a few seconds.
+    property string notice: ""
+
+    Connections {
+        target: exportJob
+        function onFinished(path) {
+            win.notice = qsTr("Exported %1").arg(path.substring(path.lastIndexOf("/") + 1))
+            noticeTimer.restart()
+        }
+    }
+
+    Timer {
+        id: noticeTimer
+        interval: 4000
+        onTriggered: win.notice = ""
+    }
 
     function pickTool(next) {
         tool = next
@@ -132,6 +148,7 @@ ApplicationWindow {
     Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: win.hasSet; onActivated: win.pickTool("text") }
     Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: win.hasSet; onActivated: win.pickTool("measure") }
     Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: win.hasSet; onActivated: scaleDialog.pick(0) }
+    Shortcut { sequence: "E"; context: Qt.ApplicationShortcut; enabled: win.hasSet; onActivated: exportJob.start() }
     Shortcut { sequences: [StandardKey.Delete, "Backspace"]; context: Qt.ApplicationShortcut; onActivated: win.deleteMarkup() }
     Shortcut { sequences: [StandardKey.Undo]; context: Qt.ApplicationShortcut; onActivated: { viewer.selectedMarkup = -1; markupSet.undo() } }
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; context: Qt.ApplicationShortcut; onActivated: { viewer.selectedMarkup = -1; markupSet.redo() } }
@@ -341,6 +358,27 @@ ApplicationWindow {
                         tool: win.tool
                         onPicked: (next) => win.pickTool(next)
                         onScaleRequested: scaleDialog.pick(0)
+                        onExportRequested: exportJob.start()
+                    }
+
+                    // An export in progress, or how it went.
+                    Rectangle {
+                        visible: exportJob.busy || win.notice !== ""
+                        anchors.top: parent.top
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.topMargin: 12
+                        width: noticeLabel.implicitWidth + 24
+                        height: noticeLabel.implicitHeight + 12
+                        radius: Math.min(4, theme.radius)
+                        color: "#131316"
+                        border.color: "#1E6BFF"
+
+                        Label {
+                            id: noticeLabel
+                            anchors.centerIn: parent
+                            font.pixelSize: 13
+                            text: exportJob.busy ? qsTr("Exporting…") : win.notice
+                        }
                     }
 
                     // What the tool in use does.
@@ -397,7 +435,7 @@ ApplicationWindow {
                             Label {
                                 readonly property string scaleLabel: markupSet.revision >= 0 ? markupSet.scaleLabel(backend.sheet) : ""
                                 visible: scaleLabel !== "" || win.tool === "measure"
-                                text: scaleLabel !== "" ? qsTr("Scale %1").arg(scaleLabel) : qsTr("No scale: press S")
+                                text: scaleLabel !== "" ? qsTr("Scale: %1").arg(scaleLabel) : qsTr("No scale: press S")
                                 color: scaleLabel !== "" ? "#b8b8c0" : "#f0b45a"
                                 font.pixelSize: 12
                             }

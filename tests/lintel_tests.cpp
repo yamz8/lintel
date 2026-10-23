@@ -1,12 +1,15 @@
 #include <QDir>
 #include <QFile>
 #include <QPainter>
+#include <QPdfDocument>
 #include <QPdfWriter>
 #include <QTemporaryDir>
 #include <QtTest>
 
 #include "backend.h"
 #include "cli.h"
+#include "exporter.h"
+#include "exportjob.h"
 #include "markuppainter.h"
 #include "markups.h"
 #include "compare.h"
@@ -24,6 +27,13 @@ public:
     void openPdf(const QString &title) override {
         lastTitle = title;
         emit openSelected(next);
+    }
+    QUrl suggested;
+    bool offeredMarkedOnly = false;
+    void savePdf(const QUrl &url, const QString &title, bool offerMarkedOnly) override {
+        lastTitle = title;
+        suggested = url;
+        offeredMarkedOnly = offerMarkedOnly;
     }
 };
 
@@ -480,6 +490,87 @@ private slots:
                 blue += qBlue(image.pixel(x, y)) > qRed(image.pixel(x, y)) + 60;
         QVERIFY(blue > 100);
         QCOMPARE(QColor(image.pixel(150, 125)), QColor(Qt::white));
+    }
+
+    void exportStampsMarkupsOnTheOriginalPages()
+    {
+        QTemporaryDir dir;
+        const QString pdf = writeSet(dir.filePath("set.pdf"), 3);
+        Backend backend;
+        QVERIFY(backend.load(QUrl::fromLocalFile(pdf)));
+        QVector<QSizeF> sizes;
+        for (int sheet = 0; sheet < backend.sheetCount(); ++sheet)
+            sizes.append(backend.sizeOf(sheet));
+        Markups markups(dir.filePath("store"));
+        QVERIFY(markups.open(pdf, 3));
+        QVERIFY(markups.add(1, "cloud", {QPointF(1000, 300), QPointF(1800, 900)}) > 0);
+
+        QString error;
+        const QString all = dir.filePath("all.pdf");
+        QVERIFY2(Exporter::exportMarkedUp(pdf, sizes, markups, {}, all, &error), qPrintable(error));
+        QPdfDocument exported;
+        QCOMPARE(exported.load(all), QPdfDocument::Error::None);
+        QCOMPARE(exported.pageCount(), 3);
+        // The drawing is still text and vectors, not a picture of them.
+        QVERIFY(exported.getAllText(1).text().contains("Sheet 2"));
+        QCOMPARE(exported.pagePointSize(1), sizes[1]);
+
+        auto bluePixels = [](QPdfDocument &document, int page) {
+            const QImage image = document.render(page, QSize(900, 600));
+            int blue = 0;
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x)
+                    blue += qAlpha(image.pixel(x, y)) > 128 && qBlue(image.pixel(x, y)) > qRed(image.pixel(x, y)) + 80;
+            return blue;
+        };
+        QVERIFY(bluePixels(exported, 1) > 50);
+        QCOMPARE(bluePixels(exported, 0), 0);
+
+        const QString marked = dir.filePath("marked.pdf");
+        QVERIFY2(Exporter::exportMarkedUp(pdf, sizes, markups, markups.markedSheets(), marked, &error), qPrintable(error));
+        QPdfDocument only;
+        QCOMPARE(only.load(marked), QPdfDocument::Error::None);
+        QCOMPARE(only.pageCount(), 1);
+        QVERIFY(only.getAllText(0).text().contains("Sheet 2"));
+
+        // Never over the original, and nothing half-written when it fails.
+        QVERIFY(!Exporter::exportMarkedUp(pdf, sizes, markups, {}, pdf, &error));
+        QVERIFY(!Exporter::exportMarkedUp(pdf, sizes, markups, {7}, dir.filePath("bad.pdf"), &error));
+        QVERIFY(!QFileInfo::exists(dir.filePath("bad.pdf")));
+        QVERIFY(!QFileInfo::exists(all + ".lintel-partial"));
+    }
+
+    void exportJobAsksWhereThenWrites()
+    {
+        QTemporaryDir dir;
+        const QString pdf = writeSet(dir.filePath("set.pdf"), 2);
+        FakePicker picker;
+        Backend backend(&picker);
+        QVERIFY(backend.load(QUrl::fromLocalFile(pdf)));
+        Markups markups(dir.filePath("store"));
+        QVERIFY(markups.open(pdf, 2));
+        ExportJob job(&backend, &markups, &picker);
+        QSignalSpy failed(&job, &ExportJob::failed);
+        QSignalSpy finished(&job, &ExportJob::finished);
+
+        // Nothing to export yet, and it says so.
+        job.start();
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(picker.suggested.isEmpty());
+
+        QVERIFY(markups.add(0, "arrow", {QPointF(100, 100), QPointF(400, 300)}) > 0);
+        job.start();
+        QCOMPARE(picker.suggested.fileName(), QString("set marked up.pdf"));
+        QVERIFY(picker.offeredMarkedOnly);
+
+        // The extension is added when the name has none.
+        emit picker.saveSelected(QUrl::fromLocalFile(dir.filePath("out")), true);
+        QVERIFY(job.busy());
+        QTRY_COMPARE(finished.count(), 1);
+        QVERIFY(!job.busy());
+        QPdfDocument exported;
+        QCOMPARE(exported.load(dir.filePath("out.pdf")), QPdfDocument::Error::None);
+        QCOMPARE(exported.pageCount(), 1);
     }
 
     void themeFallsBack()

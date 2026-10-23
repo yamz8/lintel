@@ -11,6 +11,7 @@
 
 #include "backend.h"
 #include "cli.h"
+#include "exportjob.h"
 #include "markuplayer.h"
 #include "markups.h"
 #include "portalfilepicker.h"
@@ -80,6 +81,9 @@ int main(int argc, char *argv[]) {
     qmlRegisterType<MarkupLayer>("Lintel", 1, 0, "MarkupLayer");
     qmlRegisterUncreatableType<Markups>("Lintel", 1, 0, "Markups", "Markups come from the app");
 
+    ExportJob exportJob(&backend, &markups, &picker);
+    QObject::connect(&exportJob, &ExportJob::failed, &backend, &Backend::reportError);
+
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     // The engine owns the provider and deletes it with itself.
@@ -88,6 +92,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("backend", &backend);
     engine.rootContext()->setContextProperty("markupSet", &markups);
+    engine.rootContext()->setContextProperty("exportJob", &exportJob);
     QObject::connect(&markups, &Markups::failed, &backend, &Backend::reportError);
 
     const QStringList files = parser.positionalArguments();

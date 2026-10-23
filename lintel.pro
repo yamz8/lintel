@@ -8,6 +8,8 @@ HEADERS += \
     src/compare.h \
     src/backend.h \
     src/cli.h \
+    src/exporter.h \
+    src/exportjob.h \
     src/filepicker.h \
     src/markuplayer.h \
     src/markuppainter.h \
@@ -20,6 +22,8 @@ HEADERS += \
 SOURCES += \
     src/main.cpp \
     src/compare.cpp \
+    src/exporter.cpp \
+    src/exportjob.cpp \
     src/markuplayer.cpp \
     src/markuppainter.cpp \
     src/markups.cpp \

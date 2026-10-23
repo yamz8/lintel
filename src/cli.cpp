@@ -7,12 +7,15 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLineF>
 #include <QPainter>
 #include <QSaveFile>
 #include <QUrl>
 #include <cstdio>
 
 #include "backend.h"
+#include "exporter.h"
+#include "markups.h"
 
 namespace {
 
@@ -217,6 +220,87 @@ int render(const QStringList &arguments) {
     return 0;
 }
 
+QVector<QSizeF> sheetSizes(const Backend &backend) {
+    QVector<QSizeF> sizes;
+    for (int sheet = 0; sheet < backend.sheetCount(); ++sheet)
+        sizes.append(backend.sizeOf(sheet));
+    return sizes;
+}
+
+int markupsCommand(const QStringList &arguments) {
+    Command command("markups", "List the markups on a drawing set, made in the Lintel viewer.", {"set"});
+    command.json();
+    command.parser.process(arguments);
+    Backend backend;
+    if (!load(backend, command.argument(1)))
+        return 1;
+    Markups markups;
+    QObject::connect(&markups, &Markups::failed, [](const QString &message) { print(stderr, message); });
+    markups.open(backend.filePath(), backend.sheetCount());
+
+    QJsonArray list;
+    for (int sheet = 0; sheet < backend.sheetCount(); ++sheet) {
+        const SheetScale scale = markups.scaleFor(sheet);
+        for (const Markup &markup : markups.forSheet(sheet)) {
+            // Positions in inches from the sheet's top left corner.
+            QJsonArray points;
+            for (const QPointF &p : markup.points)
+                points.append(QJsonArray{round2(p.x() / 72), round2(p.y() / 72)});
+            QJsonObject entry{{"sheet", backend.sheetLabel(sheet)}, {"type", markup.type}, {"points_in", points}};
+            if (!markup.text.isEmpty())
+                entry["text"] = markup.text;
+            if (markup.type == "measure")
+                entry["length"] = Markups::formatLength(scale, QLineF(markup.points[0], markup.points[1]).length());
+            list.append(entry);
+        }
+    }
+    if (command.wantsJson()) {
+        print({{"file", backend.fileName()}, {"markups", list}});
+        return 0;
+    }
+    for (const auto &value : list) {
+        const QJsonObject entry = value.toObject();
+        QString line = entry["sheet"].toString() + "\t" + entry["type"].toString();
+        if (entry.contains("text"))
+            line += "\t" + entry["text"].toString();
+        if (entry.contains("length"))
+            line += "\t" + entry["length"].toString();
+        print(stdout, line);
+    }
+    if (list.isEmpty())
+        print(stdout, "No markups.");
+    return 0;
+}
+
+int exportCommand(const QStringList &arguments) {
+    Command command("export", "Export the drawing set with its markups drawn on, as PDF.", {"set"});
+    command.json();
+    command.parser.addOption({{"o", "output"}, "PDF to write", "file"});
+    command.parser.addOption({"marked-only", "Only the sheets that have markups"});
+    command.parser.process(arguments);
+    const QString output = command.parser.value("output");
+    if (output.isEmpty())
+        return fail("Name the PDF to write with -o.");
+    Backend backend;
+    if (!load(backend, command.argument(1)))
+        return 1;
+    Markups markups;
+    markups.open(backend.filePath(), backend.sheetCount());
+    const QList<int> sheets = command.parser.isSet("marked-only") ? markups.markedSheets() : QList<int>();
+    if (command.parser.isSet("marked-only") && sheets.isEmpty())
+        return fail(backend.fileName() + " has no markups to export.");
+
+    QString error;
+    if (!Exporter::exportMarkedUp(backend.filePath(), sheetSizes(backend), markups, sheets, output, &error))
+        return fail(error);
+    const int pages = sheets.isEmpty() ? backend.sheetCount() : int(sheets.size());
+    if (command.wantsJson())
+        print({{"output", QFileInfo(output).absoluteFilePath()}, {"sheets", pages}, {"markups", markups.total()}});
+    else
+        print(stdout, QString("Wrote %1 (%2 sheets)").arg(output).arg(pages));
+    return 0;
+}
+
 // As Hype does: one shared copy, linked into Claude Code, found directly by Codex.
 int skill(const QStringList &arguments) {
     Command command("skill", "Print the agent skill, or install it for your coding agents with: skill install.", {});
@@ -269,11 +353,13 @@ QString cliSummary() {
            "  sheets <set>                      List the sheets, with labels and sizes\n"
            "  compare <set> <previous>          Report which sheets changed, and where\n"
            "  render <set> -o <png>             Render a sheet, or its overlay with --against\n"
+           "  markups <set>                     List the markups made in the viewer\n"
+           "  export <set> -o <pdf>             Export the set with its markups drawn on\n"
            "  skill [install]                   Print the skill for coding agents, or install it";
 }
 
 bool isCliCommand(const QString &word) {
-    return QStringList{"sheets", "compare", "render", "skill", "help"}.contains(word);
+    return QStringList{"sheets", "compare", "render", "markups", "export", "skill", "help"}.contains(word);
 }
 
 int runCli(const QStringList &arguments) {
@@ -281,6 +367,8 @@ int runCli(const QStringList &arguments) {
     return command == "sheets"    ? sheets(arguments)
            : command == "compare" ? compare(arguments)
            : command == "render"  ? render(arguments)
+           : command == "markups" ? markupsCommand(arguments)
+           : command == "export"  ? exportCommand(arguments)
            : command == "skill"   ? skill(arguments)
                                   : help(arguments);
 }

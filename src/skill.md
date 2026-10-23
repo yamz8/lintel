@@ -28,6 +28,13 @@ command needs a display, and none changes the PDFs.
   work green, unchanged faded. `--previous` renders the old sheet instead, and
   `--width` sets the image width (default 2400).
 
+- `lintel markups <set.pdf> --json` lists the markups the person made in the
+  viewer: revision clouds, arrows, text notes, and measurements with their
+  lengths at the sheet's scale. Positions are in inches from the top left.
+- `lintel export <set.pdf> -o marked-up.pdf` writes a copy with the markups
+  drawn on; `--marked-only` keeps just the sheets that have markups. The
+  drawings stay vector and searchable.
+
 ## Working with the person
 
 - To describe what changed, run `compare`, then render the overlay of each

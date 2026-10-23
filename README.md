@@ -25,6 +25,9 @@ what changed: removed work in red, added work in green.
   calibrate it by drawing along a dimension you know. Markups save as you
   go, with undo, in `~/.local/share/lintel/markups/`, keyed by the PDF's
   contents: the PDF itself is never changed.
+- Exports the set with its markups drawn on (`E`), every sheet or just the
+  marked-up ones. The markups are stamped onto the original pages with
+  qpdf, so the drawings stay vector and their text stays searchable.
 
 ## Usage
 
@@ -41,6 +44,8 @@ These need no display, take `--json`, and exit 0 or 1 with errors on stderr.
 lintel sheets set.pdf                           # sheet labels and sizes
 lintel compare rev1.pdf rev0.pdf --json         # which sheets changed, and where
 lintel render rev1.pdf --sheet A-101 --against rev0.pdf -o overlay.png
+lintel markups set.pdf --json                   # markups made in the viewer
+lintel export set.pdf --marked-only -o out.pdf  # the marked-up sheets as PDF
 lintel skill install                            # teach your coding agents to use Lintel
 ```
 
@@ -72,6 +77,7 @@ set, or on the right half to compare with it.
 | `M` | Measure |
 | `S` | Set the sheet's scale |
 | `Delete` | Delete the picked markup |
+| `E` | Export marked-up sheets to PDF |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo and redo |
 | `Esc` | Back to panning |
 | `?` | Show or hide shortcuts |
@@ -80,7 +86,7 @@ set, or on the right half to compare with it.
 ## Build
 
 Lintel is C++ and Qt Quick, built with qmake. Qt PDF comes from
-`qt6-webengine` on Arch.
+`qt6-webengine` on Arch, and exporting uses `qpdf`.
 
 ```sh
 bin/build      # builds build/lintel

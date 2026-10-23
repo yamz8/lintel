@@ -14,6 +14,7 @@ public:
     explicit PortalFilePicker(QObject *parent = nullptr);
 
     void openPdf(const QString &title) override;
+    void savePdf(const QUrl &suggestedUrl, const QString &title, bool offerMarkedOnly) override;
 
 private slots:
     void handleResponse(uint response, const QVariantMap &results);
@@ -21,7 +22,8 @@ private slots:
 private:
     enum class Action {
         None,
-        Open
+        Open,
+        Save
     };
 
     void requestFile(const QString &method, const QString &title,

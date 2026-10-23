@@ -6,7 +6,8 @@ arch=('x86_64' 'aarch64')
 url='https://github.com/yamz8/lintel'
 license=('MIT')
 # Qt PDF ships in qt6-webengine on Arch.
-depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qt6-webengine' 'xdg-desktop-portal')
+# qpdf stamps markups onto the original pages when exporting.
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qt6-webengine' 'qpdf' 'xdg-desktop-portal')
 makedepends=('gcc' 'make')
 source=()
 sha256sums=()

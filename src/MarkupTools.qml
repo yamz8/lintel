@@ -8,6 +8,7 @@ Rectangle {
     property string tool: "pan"
     signal picked(string tool)
     signal scaleRequested()
+    signal exportRequested()
 
     width: column.implicitWidth + 8
     height: column.implicitHeight + 8
@@ -21,7 +22,8 @@ Rectangle {
         { tool: "arrow", key: "A", text: qsTr("Arrow") },
         { tool: "text", key: "T", text: qsTr("Text") },
         { tool: "measure", key: "M", text: qsTr("Measure") },
-        { tool: "scale", key: "S", text: qsTr("Scale") }
+        { tool: "scale", key: "S", text: qsTr("Scale") },
+        { tool: "export", key: "E", text: qsTr("Export") }
     ]
 
     Column {
@@ -63,7 +65,9 @@ Rectangle {
                         color: button.active ? theme.accentForeground : "#d8d8de"
                     }
                 }
-                onClicked: modelData.tool === "scale" ? tools.scaleRequested() : tools.picked(modelData.tool)
+                onClicked: modelData.tool === "scale" ? tools.scaleRequested()
+                         : modelData.tool === "export" ? tools.exportRequested()
+                         : tools.picked(modelData.tool)
             }
         }
     }
