@@ -13,6 +13,8 @@ what changed: removed work in red, added work in green.
   re-renders sharp when the zoom settles.
 - Compares two revisions. Sheets are paired by their page label (A-101 to
   A-101) when the PDFs label their pages, and by position otherwise.
+- Lines the older revision up first when it was re-plotted with a slight
+  shift or scale, so the overlay shows real changes, not a misregistration.
 - Compares every sheet in the background and marks each one **Changed** or
   **New**, then walks you through the changes one at a time: `]` zooms to the
   next changed area, across sheets.

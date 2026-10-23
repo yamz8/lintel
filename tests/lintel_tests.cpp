@@ -126,6 +126,49 @@ private slots:
         QVERIFY(!Compare::changes(sheet, speckled).any());
     }
 
+    void alignmentRecoversAShiftedReplot()
+    {
+        auto drawing = [](QPointF offset, double scale) {
+            QImage image(600, 400, QImage::Format_RGB32);
+            image.fill(Qt::white);
+            QPainter painter(&image);
+            painter.translate(offset);
+            painter.scale(scale, scale);
+            painter.setPen(QPen(Qt::black, 3));
+            painter.drawRect(20, 20, 560, 360);
+            painter.drawLine(100, 60, 100, 340);
+            painter.drawLine(100, 200, 480, 200);
+            painter.drawEllipse(QPointF(300, 120), 40, 40);
+            return image;
+        };
+        const QImage newer = drawing({0, 0}, 1);
+        const QImage older = drawing({9, 6}, 0.98);
+        QVERIFY(Compare::changes(older, newer).any());
+
+        const auto alignment = Compare::align(older, newer);
+        QVERIFY(!alignment.isIdentity());
+        const auto left = Compare::changes(Compare::aligned(older, newer.size(), alignment), newer);
+        QVERIFY(!left.any());
+    }
+
+    void alignmentLeavesRealChangesAlone()
+    {
+        QImage older(600, 400, QImage::Format_RGB32);
+        older.fill(Qt::white);
+        QPainter painter(&older);
+        painter.setPen(QPen(Qt::black, 3));
+        painter.drawRect(20, 20, 560, 360);
+        painter.end();
+        QImage newer = older;
+        painter.begin(&newer);
+        painter.setPen(QPen(Qt::black, 3));
+        painter.drawLine(300, 60, 300, 340);
+        painter.end();
+
+        QVERIFY(Compare::align(older, newer).isIdentity());
+        QVERIFY(Compare::align(older, older).isIdentity());
+    }
+
     void sheetsMatchByLabel()
     {
         const auto matches = Backend::matchSheets({"A-001", "A-101", "A-102", "A-201"},

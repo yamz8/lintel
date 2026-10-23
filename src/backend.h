@@ -83,6 +83,8 @@ public:
     // The next new or changed sheet after from, stepping by +1 or -1 and
     // wrapping around, or -1 when there is none.
     Q_INVOKABLE int nextChangedSheet(int from, int step) const;
+    // Whether the older revision of this sheet had to be moved to line up.
+    Q_INVOKABLE bool isAligned(int sheet) const;
 
     Q_INVOKABLE void openDrawingSet();
     Q_INVOKABLE void openPrevious();
@@ -100,6 +102,9 @@ public:
     // Thread-safe. Renders a sheet and its match at analysisEdge and compares
     // them; nothing when the sheet has no match.
     std::optional<Compare::Changes> analyze(int sheet);
+    // Thread-safe. How the older revision of a sheet lines up with it,
+    // worked out on first use.
+    Compare::Alignment alignmentFor(int sheet);
     // Blocks until the background comparison of every sheet has finished.
     void waitForScan();
 
@@ -136,6 +141,10 @@ private:
     QStringList m_labels, m_previousLabels;
     QVector<QSizeF> m_sizes;
     QVector<int> m_matches;
+    QVector<std::optional<Compare::Alignment>> m_alignments;
+    // Bumped whenever the matches change, so an alignment worked out for the
+    // sets that were open before is never stored for the new ones.
+    int m_alignmentEpoch = 0;
 
     QString m_fileName, m_previousFileName;
     int m_generation = 0;

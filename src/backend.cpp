@@ -186,6 +186,8 @@ void Backend::rematch() {
     QMutexLocker locker(&m_lock);
     m_matches = m_previousFileName.isEmpty() ? QVector<int>(m_labels.size(), -1)
                                              : matchSheets(m_labels, m_previousLabels);
+    m_alignments = QVector<std::optional<Compare::Alignment>>(m_labels.size());
+    ++m_alignmentEpoch;
 }
 
 QVector<int> Backend::matchSheets(const QStringList &current, const QStringList &previous) {
@@ -233,14 +235,16 @@ QImage Backend::render(const QString &id, const QSize &requested) {
     const QString kind = parts.at(0);
     const int sheet = parts.at(2).toInt();
 
+    const Compare::Alignment alignment = kind == "current" ? Compare::Alignment() : alignmentFor(sheet);
     QImage older, newer;
+    QSize size;
     {
         QMutexLocker locker(&m_lock);
         if (sheet < 0 || sheet >= m_sizes.size())
             return {};
         // Both revisions render at the current sheet's size, so they line up
         // pixel for pixel whatever their page sizes in points.
-        const QSize size = renderSize(m_sizes.at(sheet), requested);
+        size = renderSize(m_sizes.at(sheet), requested);
         const int match = sheet < m_matches.size() ? m_matches.at(sheet) : -1;
         if (kind == "current" || kind == "overlay")
             newer = m_current->render(sheet, size);
@@ -250,9 +254,9 @@ QImage Backend::render(const QString &id, const QSize &requested) {
     if (kind == "current")
         return newer;
     if (kind == "previous")
-        return older;
+        return older.isNull() ? older : Compare::aligned(older, size, alignment);
     if (kind == "overlay")
-        return Compare::overlay(older, newer);
+        return Compare::overlay(Compare::aligned(older, size, alignment), newer);
     return {};
 }
 
@@ -308,16 +312,55 @@ void Backend::waitForScan() {
 
 std::optional<Compare::Changes> Backend::analyze(int sheet) {
     QImage older, newer;
+    QSize size;
+    std::optional<Compare::Alignment> alignment;
+    int epoch;
+    {
+        QMutexLocker locker(&m_lock);
+        epoch = m_alignmentEpoch;
+        const int match = matchFor(sheet);
+        if (match < 0 || sheet >= m_sizes.size() || match >= m_previous->pageCount())
+            return std::nullopt;
+        size = renderSize(m_sizes.at(sheet), QSize(analysisEdge, analysisEdge));
+        newer = m_current->render(sheet, size);
+        older = m_previous->render(match, size);
+        alignment = m_alignments.value(sheet);
+    }
+    if (!alignment) {
+        alignment = Compare::align(older, newer);
+        QMutexLocker locker(&m_lock);
+        if (epoch == m_alignmentEpoch && sheet < m_alignments.size())
+            m_alignments[sheet] = alignment;
+    }
+    return Compare::changes(Compare::aligned(older, size, *alignment), newer);
+}
+
+Compare::Alignment Backend::alignmentFor(int sheet) {
+    QImage older, newer;
+    int epoch;
     {
         QMutexLocker locker(&m_lock);
         const int match = matchFor(sheet);
         if (match < 0 || sheet >= m_sizes.size() || match >= m_previous->pageCount())
-            return std::nullopt;
+            return {};
+        if (const auto known = m_alignments.value(sheet))
+            return *known;
+        epoch = m_alignmentEpoch;
         const QSize size = renderSize(m_sizes.at(sheet), QSize(analysisEdge, analysisEdge));
         newer = m_current->render(sheet, size);
         older = m_previous->render(match, size);
     }
-    return Compare::changes(older, newer);
+    const Compare::Alignment alignment = Compare::align(older, newer);
+    QMutexLocker locker(&m_lock);
+    if (epoch == m_alignmentEpoch && sheet < m_alignments.size())
+        m_alignments[sheet] = alignment;
+    return alignment;
+}
+
+bool Backend::isAligned(int sheet) const {
+    QMutexLocker locker(&m_lock);
+    const auto alignment = m_alignments.value(sheet);
+    return alignment && !alignment->isIdentity();
 }
 
 QString Backend::sheetStatus(int sheet) const {

@@ -94,6 +94,135 @@ Classified classify(const QImage &older, const QImage &newer, int tolerance) {
 
 }
 
+QTransform Compare::Alignment::transform(const QSizeF &size) const {
+    return QTransform(scaleX, 0, 0, scaleY, offsetX * size.width(), offsetY * size.height());
+}
+
+QImage Compare::aligned(const QImage &older, const QSize &size, const Alignment &alignment) {
+    if (alignment.isIdentity())
+        return onPaper(older, size);
+    QImage paper(size, QImage::Format_RGB32);
+    paper.fill(Qt::white);
+    if (!older.isNull()) {
+        QPainter painter(&paper);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform);
+        painter.setTransform(alignment.transform(size));
+        painter.drawImage(QRect(QPoint(0, 0), size), older);
+    }
+    return paper;
+}
+
+namespace {
+
+// Ink per row and per column.
+struct Profiles {
+    std::vector<int> rows, columns;
+};
+
+Profiles profiles(const std::vector<quint8> &ink, int width, int height) {
+    Profiles p{std::vector<int>(height, 0), std::vector<int>(width, 0)};
+    for (int y = 0; y < height; ++y) {
+        const quint8 *line = ink.data() + size_t(y) * width;
+        for (int x = 0; x < width; ++x) {
+            p.rows[y] += line[x];
+            p.columns[x] += line[x];
+        }
+    }
+    return p;
+}
+
+// First and last index with real ink, ignoring the odd speck.
+std::pair<int, int> extent(const std::vector<int> &profile) {
+    int first = -1, last = -1;
+    for (int i = 0; i < int(profile.size()); ++i) {
+        if (profile[i] >= 2) {
+            if (first < 0)
+                first = i;
+            last = i;
+        }
+    }
+    return {first, last};
+}
+
+// The shift of b against a, within reach, that lines their profiles up
+// best, to a fraction of a pixel: a parabola through the best score and its
+// neighbors puts the peak between whole pixels.
+double bestShift(const std::vector<int> &a, const std::vector<int> &b, int reach) {
+    const int n = int(a.size());
+    auto score = [&](int shift) {
+        long long total = 0;
+        for (int i = qMax(0, shift); i < qMin(n, n + shift); ++i)
+            total += qMin(a[i - shift], b[i]);
+        return double(total);
+    };
+    int best = 0;
+    double bestScore = -1;
+    for (int shift = -reach; shift <= reach; ++shift) {
+        const double s = score(shift);
+        if (s > bestScore || (s == bestScore && qAbs(shift) < qAbs(best))) {
+            bestScore = s;
+            best = shift;
+        }
+    }
+    const double before = score(best - 1), after = score(best + 1);
+    const double curvature = before - 2 * bestScore + after;
+    return curvature < 0 ? best + qBound(-0.5, (before - after) / (2 * curvature), 0.5) : best;
+}
+
+int changedPixels(const QImage &older, const QImage &newer) {
+    const Classified c = classify(older, newer, Compare::defaultTolerance);
+    return int(std::count_if(c.pixels.begin(), c.pixels.end(), [](quint8 p) { return p >= Removed; }));
+}
+
+}
+
+Compare::Alignment Compare::align(const QImage &olderImage, const QImage &newerImage) {
+    if (olderImage.isNull() || newerImage.isNull())
+        return {};
+    const QSize size = newerImage.size();
+    const QImage older = onPaper(olderImage, size), newer = onPaper(newerImage, size);
+    const int width = size.width(), height = size.height();
+    const Profiles a = profiles(inkMask(older), width, height);
+    const Profiles b = profiles(inkMask(newer), width, height);
+    const auto [ax0, ax1] = extent(a.columns);
+    const auto [ay0, ay1] = extent(a.rows);
+    const auto [bx0, bx1] = extent(b.columns);
+    const auto [by0, by1] = extent(b.rows);
+    if (ax0 < 0 || bx0 < 0 || ax1 <= ax0 || ay1 <= ay0 || bx1 <= bx0 || by1 <= by0)
+        return {};
+
+    // The frame around a sheet makes the extent of its ink a good guide to
+    // scale. More than a few percent is a different drawing, not a re-plot.
+    Alignment candidate;
+    const double sx = double(bx1 - bx0) / (ax1 - ax0), sy = double(by1 - by0) / (ay1 - ay0);
+    if (qAbs(sx - 1) < 0.04 && qAbs(sy - 1) < 0.04 && qAbs(sx - sy) < 0.01) {
+        candidate.scaleX = sx;
+        candidate.scaleY = sy;
+    }
+    candidate.offsetX = (bx0 - ax0 * candidate.scaleX) / width;
+    candidate.offsetY = (by0 - ay0 * candidate.scaleY) / height;
+
+    // Then line the ink up row by row and column by column, up to 2% away.
+    const QImage moved = aligned(older, size, candidate);
+    const Profiles m = profiles(inkMask(moved), width, height);
+    candidate.offsetX += bestShift(m.columns, b.columns, width / 50) / width;
+    candidate.offsetY += bestShift(m.rows, b.rows, height / 50) / height;
+
+    // Snap away sub-pixel noise, so an unmoved sheet stays exactly put.
+    auto snap = [](double value, double unit, double rest) { return qAbs(value - rest) < unit / 2 ? rest : value; };
+    candidate.scaleX = snap(candidate.scaleX, 1.0 / width, 1);
+    candidate.scaleY = snap(candidate.scaleY, 1.0 / height, 1);
+    candidate.offsetX = snap(candidate.offsetX, 1.0 / width, 0);
+    candidate.offsetY = snap(candidate.offsetY, 1.0 / height, 0);
+    if (candidate.isIdentity())
+        return {};
+
+    // Keep it only when it clears a good share of the differences.
+    const int before = changedPixels(older, newer);
+    const int after = changedPixels(aligned(older, size, candidate), newer);
+    return after < before * 0.7 ? candidate : Alignment{};
+}
+
 QImage Compare::overlay(const QImage &older, const QImage &newer, int tolerance) {
     if (newer.isNull())
         return {};

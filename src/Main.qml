@@ -316,6 +316,16 @@ ApplicationWindow {
                             }
 
                             Label {
+                                visible: backend.analysisRevision >= 0 && backend.isAligned(backend.sheet)
+                                text: qsTr("Aligned")
+                                color: "#8a8a94"
+                                font.pixelSize: 12
+                                ToolTip.visible: alignedHover.hovered
+                                ToolTip.text: qsTr("The previous revision was shifted or scaled to line up with this one.")
+                                HoverHandler { id: alignedHover }
+                            }
+
+                            Label {
                                 visible: win.regions.length > 0
                                 text: win.region >= 0
                                     ? qsTr("Change %1 of %2").arg(win.number(win.region + 1)).arg(win.number(win.regions.length))
