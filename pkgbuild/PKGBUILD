@@ -1,0 +1,25 @@
+pkgname=lintel
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='A fast viewer for construction drawing sets, with revision compare'
+arch=('x86_64' 'aarch64')
+url='https://github.com/yamz8/lintel'
+license=('MIT')
+# Qt PDF ships in qt6-webengine on Arch.
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qt6-webengine' 'xdg-desktop-portal')
+makedepends=('gcc' 'make')
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/.."
+  ./bin/build
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 build/lintel "$pkgdir/usr/bin/lintel"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$startdir/lintel.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/lintel.svg"
+  install -Dm644 "$startdir/lintel.desktop" "$pkgdir/usr/share/applications/lintel.desktop"
+}

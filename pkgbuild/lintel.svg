@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#FFD60A"/>
+  <!-- A doorway: two jambs under the lintel that spans them. -->
+  <rect x="17" y="27" width="6" height="25" fill="#111114"/>
+  <rect x="41" y="27" width="6" height="25" fill="#111114"/>
+  <rect x="11" y="18" width="42" height="8" rx="1.5" fill="#111114"/>
+  <path d="M23 52 V30 H41 V52" fill="none" stroke="#111114" stroke-width="1.5" stroke-dasharray="3 2.5"/>
+</svg>
