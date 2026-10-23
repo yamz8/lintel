@@ -1,4 +1,4 @@
-QT += core gui quick quickcontrols2 testlib dbus pdf
+QT += core gui quick quickcontrols2 testlib dbus pdf concurrent
 CONFIG += c++17 testcase
 TARGET = lintel_tests
 TEMPLATE = app

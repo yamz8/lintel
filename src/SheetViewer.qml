@@ -20,6 +20,9 @@ Item {
     property real zoom: 1
     property real renderZoom: 1
     property bool fitted: true
+    // The changed areas to outline, and which one is being looked at.
+    property var regions: []
+    property int focusedRegion: -1
     readonly property bool loading: sheetImage.status === Image.Loading
 
     function clampZoom(value) { return Math.max(minZoom, Math.min(maxZoom, value)) }
@@ -43,6 +46,21 @@ Item {
         fitted = false
         flick.contentX = Math.max(0, Math.min(px * zoom + paper.x - vx, flick.contentWidth - flick.width))
         flick.contentY = Math.max(0, Math.min(py * zoom + paper.y - vy, flick.contentHeight - flick.height))
+    }
+
+    // Brings a region (fractions of the sheet) to the middle of the view,
+    // zoomed so it fills about half of it.
+    function showRegion(region) {
+        if (points.width <= 0)
+            return
+        const w = Math.max(region.width * points.width, 1), h = Math.max(region.height * points.height, 1)
+        zoom = clampZoom(Math.min(width * 0.55 / w, height * 0.55 / h))
+        renderZoom = zoom
+        fitted = false
+        const cx = paper.x + (region.x + region.width / 2) * paper.width
+        const cy = paper.y + (region.y + region.height / 2) * paper.height
+        flick.contentX = Math.max(0, Math.min(cx - width / 2, flick.contentWidth - flick.width))
+        flick.contentY = Math.max(0, Math.min(cy - height / 2, flick.contentHeight - flick.height))
     }
 
     function zoomBy(factor) { zoomAt(zoom * factor, width / 2, height / 2) }
@@ -98,6 +116,24 @@ Item {
                 cache: false
                 smooth: true
                 mipmap: true
+            }
+
+            Repeater {
+                model: viewer.regions
+                delegate: Rectangle {
+                    required property var modelData
+                    required property int index
+                    readonly property bool focused: index === viewer.focusedRegion
+                    x: modelData.x * paper.width - 4
+                    y: modelData.y * paper.height - 4
+                    width: modelData.width * paper.width + 8
+                    height: modelData.height * paper.height + 8
+                    color: focused ? Qt.rgba(0.85, 0.56, 0.02, 0.06) : "transparent"
+                    border.color: "#D98E04"
+                    border.width: focused ? 3 : 1.5
+                    opacity: focused || viewer.focusedRegion < 0 ? 1 : 0.6
+                    radius: Math.min(4, theme.radius)
+                }
             }
         }
 

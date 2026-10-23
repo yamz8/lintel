@@ -21,8 +21,10 @@ ListView {
         id: entry
         required property int index
         readonly property bool selected: index === backend.sheet
-        // Reading generation re-evaluates these when another set is opened.
-        readonly property bool isNew: backend.generation >= 0 && backend.hasPrevious && backend.matchFor(index) < 0
+        // Reading the revisions re-evaluates this as sets open and sheets
+        // finish comparing.
+        readonly property string status: backend.generation >= 0 && backend.analysisRevision >= 0
+            ? backend.sheetStatus(index) : ""
         width: ListView.view.width
         height: thumb.height + label.implicitHeight + 22
 
@@ -44,6 +46,10 @@ ListView {
             readonly property size points: backend.generation >= 0 ? backend.sizeOf(entry.index) : Qt.size(0, 0)
             width: entry.width - 40
             height: points.width > 0 ? width * points.height / points.width : width
+
+            // Sheets that came through unchanged step back, so the eye goes
+            // to the ones that need looking at.
+            opacity: entry.status === "unchanged" ? 0.55 : 1
 
             Image {
                 anchors.fill: parent
@@ -71,18 +77,18 @@ ListView {
             }
 
             Rectangle {
-                visible: entry.isNew
-                width: newTag.implicitWidth + 8
-                height: newTag.implicitHeight + 2
+                visible: entry.status === "new" || entry.status === "changed"
+                width: tag.implicitWidth + 8
+                height: tag.implicitHeight + 2
                 radius: Math.min(3, theme.radius)
-                color: "#1FA34A"
+                color: entry.status === "new" ? "#1FA34A" : "#D98E04"
                 anchors.verticalCenter: label.verticalCenter
 
                 Label {
-                    id: newTag
+                    id: tag
                     anchors.centerIn: parent
-                    text: qsTr("New")
-                    color: "white"
+                    text: entry.status === "new" ? qsTr("New") : qsTr("Changed")
+                    color: entry.status === "new" ? "white" : "black"
                     font.pixelSize: 10
                     font.bold: true
                 }

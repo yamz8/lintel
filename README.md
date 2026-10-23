@@ -12,8 +12,10 @@ what changed: removed work in red, added work in green.
 - Zooms and pans smoothly on large sheets. The image scales at once and
   re-renders sharp when the zoom settles.
 - Compares two revisions. Sheets are paired by their page label (A-101 to
-  A-101) when the PDFs label their pages, and by position otherwise. A sheet
-  the older set doesn't have is marked **New**.
+  A-101) when the PDFs label their pages, and by position otherwise.
+- Compares every sheet in the background and marks each one **Changed** or
+  **New**, then walks you through the changes one at a time: `]` zooms to the
+  next changed area, across sheets.
 - Follows the Omarchy theme accent, window rounding, and language live.
 
 Coming later: markup (clouds, arrows, text), measurements with a set scale,
@@ -39,6 +41,8 @@ set, or on the right half to compare with it.
 | `X` | Close the older revision |
 | `Space` | Toggle the overlay |
 | `1` / `2` / `3` | Current, previous, overlay |
+| `]` / `[` | Next and previous change |
+| `N` / `Shift+N` | Next and previous changed sheet |
 | `J` / `Page Down` | Next sheet |
 | `K` / `Page Up` | Previous sheet |
 | `Home` / `End` | First and last sheet |

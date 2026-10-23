@@ -91,6 +91,41 @@ private slots:
         QVERIFY(Compare::overlay(newer, QImage()).isNull());
     }
 
+    void changesAreGroupedIntoRegions()
+    {
+        QImage older(400, 300, QImage::Format_RGB32);
+        older.fill(Qt::white);
+        QImage newer = older;
+        QPainter painter(&newer);
+        painter.fillRect(300, 40, 30, 20, Qt::black);   // top right
+        painter.fillRect(40, 200, 20, 30, Qt::black);   // lower left
+        painter.fillRect(48, 238, 10, 6, Qt::black);    // close by, same change
+        painter.end();
+
+        const auto changes = Compare::changes(older, newer);
+        QCOMPARE(changes.regions.size(), 2);
+        QVERIFY(changes.added > 0);
+        QCOMPARE(changes.removed, 0);
+        // Reading order: the top one first.
+        QVERIFY(changes.regions[0].contains(QPointF(315 / 400.0, 50 / 300.0)));
+        QVERIFY(changes.regions[1].contains(QPointF(50 / 400.0, 215 / 300.0)));
+        QVERIFY(changes.regions[1].contains(QPointF(53 / 400.0, 241 / 300.0)));
+    }
+
+    void identicalOrSpeckledSheetsHaveNoChanges()
+    {
+        QImage sheet(400, 300, QImage::Format_RGB32);
+        sheet.fill(Qt::white);
+        QPainter painter(&sheet);
+        painter.drawRect(20, 20, 200, 100);
+        painter.end();
+        QVERIFY(!Compare::changes(sheet, sheet).any());
+
+        QImage speckled = sheet;
+        speckled.setPixel(300, 200, qRgb(0, 0, 0));
+        QVERIFY(!Compare::changes(sheet, speckled).any());
+    }
+
     void sheetsMatchByLabel()
     {
         const auto matches = Backend::matchSheets({"A-001", "A-101", "A-102", "A-201"},
@@ -185,10 +220,43 @@ private slots:
         // Sheet 3 isn't in the older set, so it has no previous render.
         QVERIFY(backend.render(QString("previous/%1/2").arg(backend.generation()), QSize(400, 400)).isNull());
 
+        backend.waitForScan();
+        QVERIFY(!backend.scanning());
+        // The sets differ in the box drawn on each sheet, which grows with it.
+        QCOMPARE(backend.sheetStatus(0), QString("unchanged"));
+        QCOMPARE(backend.sheetStatus(1), QString("unchanged"));
+        QCOMPARE(backend.sheetStatus(2), QString("new"));
+        QCOMPARE(backend.newCount(), 1);
+        QCOMPARE(backend.nextChangedSheet(0, 1), 2);
+        QCOMPARE(backend.nextChangedSheet(2, 1), 2);
+
         backend.closePrevious();
         QVERIFY(!backend.hasPrevious());
+        QCOMPARE(backend.sheetStatus(0), QString());
         QCOMPARE(backend.mode(), QString("current"));
         QCOMPARE(backend.matchFor(0), -1);
+    }
+
+    void scanFindsChangedSheets()
+    {
+        QTemporaryDir dir;
+        Backend backend;
+        QVERIFY(backend.load(QUrl::fromLocalFile(writeSet(dir.filePath("rev1.pdf"), 2, 1))));
+        QVERIFY(backend.loadPrevious(QUrl::fromLocalFile(writeSet(dir.filePath("rev0.pdf"), 2))));
+        backend.waitForScan();
+
+        QCOMPARE(backend.sheetStatus(0), QString("unchanged"));
+        QCOMPARE(backend.sheetStatus(1), QString("changed"));
+        QCOMPARE(backend.changedCount(), 1);
+        QCOMPARE(backend.changeRegions(1).size(), 1);
+        const QRectF region = backend.changeRegions(1).first().toRectF();
+        // The mark is 900 by 600 units of 1/1200 inch on a 36 by 24 inch sheet,
+        // inside the writer's margins: small, toward the upper left.
+        QVERIFY2(region.width() < 0.1 && region.height() < 0.15, qPrintable(QString::number(region.width())));
+        QVERIFY(region.center().x() > 0.1 && region.center().x() < 0.2);
+        QVERIFY(region.center().y() > 0.05 && region.center().y() < 0.2);
+        QCOMPARE(backend.nextChangedSheet(0, 1), 1);
+        QCOMPARE(backend.nextChangedSheet(1, -1), 1);
     }
 
     void pickerResultsGoToTheRightSet()
@@ -305,8 +373,9 @@ private:
         file.write(contents);
     }
 
-    // A landscape drawing set with a numbered box on each sheet.
-    static QString writeSet(const QString &path, int sheets)
+    // A landscape drawing set with a numbered box on each sheet, and an
+    // extra mark on the sheet numbered marked.
+    static QString writeSet(const QString &path, int sheets, int marked = -1)
     {
         QPdfWriter writer(path);
         writer.setPageSize(QPageSize(QPageSize::ArchD));
@@ -317,6 +386,8 @@ private:
                 writer.newPage();
             painter.drawRect(400, 400, 4000 + sheet * 500, 3000);
             painter.drawText(600, 800, QString("Sheet %1").arg(sheet + 1));
+            if (sheet == marked)
+                painter.fillRect(5000, 2000, 900, 600, Qt::black);
         }
         painter.end();
         return path;

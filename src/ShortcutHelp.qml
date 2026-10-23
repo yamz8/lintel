@@ -14,6 +14,8 @@ Rectangle {
         ["X", qsTr("Close the older revision")],
         ["Space", qsTr("Toggle the overlay")],
         ["1 / 2 / 3", qsTr("Current, previous, overlay")],
+        ["] / [", qsTr("Next and previous change")],
+        ["N / Shift+N", qsTr("Next and previous changed sheet")],
         ["J / Page Down", qsTr("Next sheet")],
         ["K / Page Up", qsTr("Previous sheet")],
         ["Home / End", qsTr("First and last sheet")],

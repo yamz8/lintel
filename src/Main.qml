@@ -34,6 +34,53 @@ ApplicationWindow {
         return translator.language !== "" ? value.toLocaleString(Qt.locale(), 'f', 0) : ""
     }
 
+    // Which change on the sheet is being looked at; -1 for none.
+    property int region: -1
+    property int pendingRegion: -2
+    readonly property var regions: backend.analysisRevision >= 0 && backend.hasPrevious
+        ? backend.changeRegions(backend.sheet) : []
+
+    Connections {
+        target: backend
+        function onSheetChanged() {
+            win.region = -1
+            // Runs after the viewer fits the new sheet.
+            if (win.pendingRegion !== -2)
+                Qt.callLater(win.showPendingRegion)
+        }
+    }
+
+    function showPendingRegion() {
+        const wanted = pendingRegion
+        pendingRegion = -2
+        if (regions.length === 0)
+            return
+        region = wanted < 0 ? regions.length - 1 : Math.min(wanted, regions.length - 1)
+        viewer.showRegion(regions[region])
+    }
+
+    // Steps through every change in the set: the areas on this sheet first,
+    // then on to the next changed or new sheet.
+    function stepChange(step) {
+        if (!backend.hasPrevious)
+            return
+        const next = region + step
+        if (next >= 0 && next < regions.length) {
+            region = next
+            viewer.showRegion(regions[next])
+            return
+        }
+        stepSheet(step)
+    }
+
+    function stepSheet(step) {
+        const sheet = backend.nextChangedSheet(backend.sheet, step)
+        if (sheet < 0 || sheet === backend.sheet)
+            return
+        pendingRegion = step > 0 ? 0 : -1
+        backend.sheet = sheet
+    }
+
     function toggleOverlay() {
         if (backend.hasPrevious)
             showMode(backend.mode === "overlay" ? lastSingleMode : "overlay")
@@ -48,6 +95,10 @@ ApplicationWindow {
     Shortcut { sequence: "1"; context: Qt.ApplicationShortcut; onActivated: win.showMode("current") }
     Shortcut { sequence: "2"; context: Qt.ApplicationShortcut; enabled: backend.hasPrevious; onActivated: win.showMode("previous") }
     Shortcut { sequence: "3"; context: Qt.ApplicationShortcut; enabled: backend.hasPrevious; onActivated: win.showMode("overlay") }
+    Shortcut { sequence: "N"; context: Qt.ApplicationShortcut; onActivated: win.stepSheet(1) }
+    Shortcut { sequence: "Shift+N"; context: Qt.ApplicationShortcut; onActivated: win.stepSheet(-1) }
+    Shortcut { sequence: "]"; context: Qt.ApplicationShortcut; onActivated: win.stepChange(1) }
+    Shortcut { sequence: "["; context: Qt.ApplicationShortcut; onActivated: win.stepChange(-1) }
     Shortcut { sequences: ["J", "PgDown"]; context: Qt.ApplicationShortcut; onActivated: backend.nextSheet() }
     Shortcut { sequences: ["K", "PgUp"]; context: Qt.ApplicationShortcut; onActivated: backend.previousSheetInSet() }
     Shortcut { sequence: "Home"; context: Qt.ApplicationShortcut; onActivated: backend.sheet = 0 }
@@ -145,6 +196,19 @@ ApplicationWindow {
                         font.pixelSize: 13
                     }
 
+                    // How the comparison came out, or how far along it is.
+                    Label {
+                        visible: backend.hasPrevious && win.width >= 1100
+                        text: backend.scanning
+                            ? qsTr("Comparing… %1%").arg(win.number(Math.round(backend.scanProgress * 100)))
+                            : [qsTr("%n changed", "", backend.changedCount),
+                               qsTr("%n new", "", backend.newCount),
+                               backend.removedCount > 0 ? qsTr("%n removed", "", backend.removedCount) : ""]
+                                  .filter(part => part !== "").join(" · ")
+                        color: "#D98E04"
+                        font.pixelSize: 13
+                    }
+
                     Item { Layout.fillWidth: true }
 
                     // Which revision to show, once there are two.
@@ -224,6 +288,8 @@ ApplicationWindow {
                         anchors.fill: parent
                         visible: win.hasSet
                         kind: backend.mode === "previous" && win.sheetMissing ? "" : backend.mode
+                        regions: win.regions
+                        focusedRegion: win.region
                     }
 
                     // The zoom level, and the overlay's key while it's on.
@@ -246,6 +312,15 @@ ApplicationWindow {
                             Label {
                                 text: qsTr("%1%").arg(win.number(Math.round(viewer.zoom * 100 / viewer.fitZoom)))
                                 color: "#b8b8c0"
+                                font.pixelSize: 12
+                            }
+
+                            Label {
+                                visible: win.regions.length > 0
+                                text: win.region >= 0
+                                    ? qsTr("Change %1 of %2").arg(win.number(win.region + 1)).arg(win.number(win.regions.length))
+                                    : qsTr("%n changes", "", win.regions.length)
+                                color: "#D98E04"
                                 font.pixelSize: 12
                             }
 

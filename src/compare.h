@@ -2,10 +2,11 @@
 
 #include <QColor>
 #include <QImage>
+#include <QRectF>
+#include <QVector>
 
-// Overlays two renders of the same sheet. Ink only on the older revision is
-// painted red (removed), ink only on the newer one green (added), and ink on
-// both is faded so the changes stand out against it.
+// Compares two renders of the same sheet. Ink only on the older revision is
+// removed, ink only on the newer one added, and ink on both unchanged.
 namespace Compare {
 
 inline const QColor removedColor{0xE0, 0x30, 0x2A};
@@ -18,8 +19,22 @@ constexpr int inkThreshold = 170;
 // anti-aliasing and rounding between two renders don't light up every line.
 constexpr int defaultTolerance = 1;
 
+// What changed on a sheet: counts of changed pixels, and the areas around
+// them as fractions of the sheet (0 to 1), in reading order.
+struct Changes {
+    int removed = 0;
+    int added = 0;
+    QVector<QRectF> regions;
+    bool any() const { return !regions.isEmpty(); }
+};
+
+// Paints the overlay: removed ink red, added ink green, unchanged ink faded.
 // Both images are scaled to the newer one's size first, since revisions of a
 // sheet share a sheet size even when their PDFs differ slightly in points.
 QImage overlay(const QImage &older, const QImage &newer, int tolerance = defaultTolerance);
+
+// Finds the changed areas, grouping changes that sit close together so a
+// moved wall is one region, not dozens of pixels.
+Changes changes(const QImage &older, const QImage &newer, int tolerance = defaultTolerance);
 
 }

@@ -1,1 +1,6 @@
-{}
+{
+  "%n changed": { "one": "%n changed", "other": "%n changed" },
+  "%n new": { "one": "%n new", "other": "%n new" },
+  "%n removed": { "one": "%n removed", "other": "%n removed" },
+  "%n changes": { "one": "%n change", "other": "%n changes" }
+}

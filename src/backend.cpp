@@ -1,10 +1,12 @@
 #include "backend.h"
 
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <QHash>
 #include <QMutexLocker>
 #include <QPdfDocument>
 #include <QRegularExpression>
+#include <QtConcurrentRun>
 #include <utility>
 
 #include "compare.h"
@@ -21,6 +23,7 @@ Backend::Backend(FilePicker *picker, QObject *parent)
 }
 
 Backend::~Backend() {
+    stopScan();
     // Loader threads may still be rendering; wait for the last one.
     QMutexLocker locker(&m_lock);
 }
@@ -131,10 +134,14 @@ bool Backend::loadInto(Target target, const QUrl &url) {
 }
 
 bool Backend::load(const QUrl &url) {
-    if (!loadInto(Target::Current, url))
+    stopScan();
+    if (!loadInto(Target::Current, url)) {
+        startScan();
         return false;
+    }
     rematch();
     ++m_generation;
+    startScan();
     m_sheet = 0;
     emit documentsChanged();
     emit sheetChanged();
@@ -146,16 +153,21 @@ bool Backend::loadPrevious(const QUrl &url) {
         setError(tr("Open a drawing set before comparing it with an older revision."));
         return false;
     }
-    if (!loadInto(Target::Previous, url))
+    stopScan();
+    if (!loadInto(Target::Previous, url)) {
+        startScan();
         return false;
+    }
     rematch();
     ++m_generation;
+    startScan();
     emit documentsChanged();
     emit sheetChanged();
     setMode("overlay");
     return true;
 }
 void Backend::closePrevious() {
+    stopScan();
     {
         QMutexLocker locker(&m_lock);
         m_previous->close();
@@ -164,6 +176,7 @@ void Backend::closePrevious() {
     }
     rematch();
     ++m_generation;
+    startScan();
     setMode("current");
     emit documentsChanged();
     emit sheetChanged();
@@ -241,6 +254,119 @@ QImage Backend::render(const QString &id, const QSize &requested) {
     if (kind == "overlay")
         return Compare::overlay(older, newer);
     return {};
+}
+
+void Backend::startScan() {
+    m_analysis = QVector<Analysis>(sheetCount());
+    m_analyzed = 0;
+    ++m_analysisRevision;
+    if (!hasPrevious()) {
+        emit analysisChanged();
+        return;
+    }
+    // New sheets have nothing to compare with, so they're done already.
+    for (int sheet = 0; sheet < sheetCount(); ++sheet) {
+        if (matchFor(sheet) < 0) {
+            m_analysis[sheet].done = true;
+            ++m_analyzed;
+        }
+    }
+    emit analysisChanged();
+
+    const int generation = m_generation;
+    const QVector<int> matches = m_matches;
+    m_scanGeneration = generation;
+    m_scan = QtConcurrent::run([this, generation, matches] {
+        for (int sheet = 0; sheet < matches.size() && m_scanGeneration == generation; ++sheet) {
+            if (matches.at(sheet) < 0)
+                continue;
+            const auto changes = analyze(sheet);
+            if (!changes || m_scanGeneration != generation)
+                return;
+            QMetaObject::invokeMethod(this, [this, generation, sheet, changes = *changes] {
+                if (generation != m_generation || sheet >= m_analysis.size())
+                    return;
+                m_analysis[sheet] = {true, changes};
+                ++m_analyzed;
+                ++m_analysisRevision;
+                emit analysisChanged();
+            }, Qt::QueuedConnection);
+        }
+    });
+}
+
+void Backend::stopScan() {
+    m_scanGeneration = -1;
+    m_scan.waitForFinished();
+}
+
+void Backend::waitForScan() {
+    m_scan.waitForFinished();
+    // Deliver the results the scan queued for this thread.
+    QCoreApplication::sendPostedEvents(this);
+}
+
+std::optional<Compare::Changes> Backend::analyze(int sheet) {
+    QImage older, newer;
+    {
+        QMutexLocker locker(&m_lock);
+        const int match = matchFor(sheet);
+        if (match < 0 || sheet >= m_sizes.size() || match >= m_previous->pageCount())
+            return std::nullopt;
+        const QSize size = renderSize(m_sizes.at(sheet), QSize(analysisEdge, analysisEdge));
+        newer = m_current->render(sheet, size);
+        older = m_previous->render(match, size);
+    }
+    return Compare::changes(older, newer);
+}
+
+QString Backend::sheetStatus(int sheet) const {
+    if (!hasPrevious() || sheet < 0 || sheet >= m_analysis.size())
+        return {};
+    if (matchFor(sheet) < 0)
+        return "new";
+    const Analysis &analysis = m_analysis.at(sheet);
+    return !analysis.done ? "pending" : analysis.changes.any() ? "changed" : "unchanged";
+}
+
+QVariantList Backend::changeRegions(int sheet) const {
+    QVariantList regions;
+    if (sheet >= 0 && sheet < m_analysis.size())
+        for (const QRectF &region : m_analysis.at(sheet).changes.regions)
+            regions.append(region);
+    return regions;
+}
+
+int Backend::nextChangedSheet(int from, int step) const {
+    const int count = sheetCount();
+    step = step < 0 ? -1 : 1;
+    for (int i = 1; i <= count; ++i) {
+        const int sheet = ((from + step * i) % count + count) % count;
+        const QString status = sheetStatus(sheet);
+        if (status == "changed" || status == "new")
+            return sheet;
+    }
+    return -1;
+}
+
+int Backend::changedCount() const {
+    int count = 0;
+    for (const Analysis &analysis : m_analysis)
+        count += analysis.done && analysis.changes.any();
+    return count;
+}
+
+int Backend::newCount() const {
+    return hasPrevious() ? int(std::count(m_matches.begin(), m_matches.end(), -1)) : 0;
+}
+
+int Backend::removedCount() const {
+    if (!hasPrevious())
+        return 0;
+    int count = 0;
+    for (int sheet = 0; sheet < m_previousLabels.size(); ++sheet)
+        count += !m_matches.contains(sheet);
+    return count;
 }
 
 void Backend::setError(const QString &error) {

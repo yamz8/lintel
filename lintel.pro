@@ -1,4 +1,4 @@
-QT += core gui qml quick quickcontrols2 dbus pdf
+QT += core gui qml quick quickcontrols2 dbus pdf concurrent
 
 CONFIG += c++17 release
 TARGET = lintel
