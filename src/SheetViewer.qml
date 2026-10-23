@@ -15,7 +15,34 @@ Item {
         ? Math.max(0.01, Math.min((width - 2 * margin) / points.width, (height - 2 * margin) / points.height))
         : 1
     readonly property real minZoom: fitZoom / 2
-    readonly property real maxZoom: Math.max(fitZoom * 2, 6)
+    readonly property real maxZoom: Math.max(fitZoom * 2, 12)
+    // The base image never renders bigger than this; past it, sharp tiles
+    // of just the visible part are drawn over it.
+    readonly property int baseEdge: 3072
+    readonly property int tileEdge: 512
+    readonly property size fullSize: Qt.size(Math.round(points.width * renderZoom * Screen.devicePixelRatio),
+                                             Math.round(points.height * renderZoom * Screen.devicePixelRatio))
+    readonly property bool tiled: Math.max(fullSize.width, fullSize.height) > baseEdge
+    property var tiles: []
+
+    function updateTiles() {
+        if (!tiled || kind === "" || paper.width <= 0) {
+            tiles = []
+            return
+        }
+        // The visible part of the sheet in full-size pixels, plus a tile of
+        // margin so panning a little shows sharp tiles at once.
+        const scale = fullSize.width / paper.width
+        const left = Math.max(0, (flick.contentX - paper.x) * scale - tileEdge)
+        const top = Math.max(0, (flick.contentY - paper.y) * scale - tileEdge)
+        const right = Math.min(fullSize.width, (flick.contentX - paper.x + flick.width) * scale + tileEdge)
+        const bottom = Math.min(fullSize.height, (flick.contentY - paper.y + flick.height) * scale + tileEdge)
+        const list = []
+        for (let y = Math.floor(top / tileEdge) * tileEdge; y < bottom; y += tileEdge)
+            for (let x = Math.floor(left / tileEdge) * tileEdge; x < right; x += tileEdge)
+                list.push({ x: x, y: y, w: Math.min(tileEdge, fullSize.width - x), h: Math.min(tileEdge, fullSize.height - y) })
+        tiles = list
+    }
     // Logical pixels per PDF point.
     property real zoom: 1
     property real renderZoom: 1
@@ -27,9 +54,12 @@ Item {
 
     function clampZoom(value) { return Math.max(minZoom, Math.min(maxZoom, value)) }
 
+    onKindChanged: tileTimer.restart()
+
     function fit() {
         zoom = fitZoom
         renderZoom = zoom
+        tileTimer.restart()
         fitted = true
         flick.contentX = 0
         flick.contentY = 0
@@ -56,6 +86,7 @@ Item {
         const w = Math.max(region.width * points.width, 1), h = Math.max(region.height * points.height, 1)
         zoom = clampZoom(Math.min(width * 0.55 / w, height * 0.55 / h))
         renderZoom = zoom
+        tileTimer.restart()
         fitted = false
         const cx = paper.x + (region.x + region.width / 2) * paper.width
         const cy = paper.y + (region.y + region.height / 2) * paper.height
@@ -82,7 +113,16 @@ Item {
     Timer {
         id: settle
         interval: 180
-        onTriggered: viewer.renderZoom = viewer.zoom
+        onTriggered: {
+            viewer.renderZoom = viewer.zoom
+            viewer.updateTiles()
+        }
+    }
+
+    Timer {
+        id: tileTimer
+        interval: 60
+        onTriggered: viewer.updateTiles()
     }
 
     Flickable {
@@ -92,6 +132,10 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         contentWidth: Math.max(width, paper.width + 2 * viewer.margin)
         contentHeight: Math.max(height, paper.height + 2 * viewer.margin)
+        onContentXChanged: tileTimer.restart()
+        onContentYChanged: tileTimer.restart()
+        onWidthChanged: tileTimer.restart()
+        onHeightChanged: tileTimer.restart()
         ScrollBar.vertical: ScrollBar {}
         ScrollBar.horizontal: ScrollBar {}
 
@@ -108,14 +152,34 @@ Item {
                 anchors.fill: parent
                 source: backend.sheetCount > 0 && viewer.kind !== ""
                     ? "image://sheets/" + viewer.kind + "/" + backend.generation + "/" + backend.sheet : ""
-                sourceSize: Qt.size(Math.round(viewer.points.width * viewer.renderZoom * Screen.devicePixelRatio),
-                                    Math.round(viewer.points.height * viewer.renderZoom * Screen.devicePixelRatio))
+                sourceSize: viewer.tiled
+                    ? (viewer.fullSize.width >= viewer.fullSize.height
+                        ? Qt.size(viewer.baseEdge, Math.round(viewer.baseEdge * viewer.fullSize.height / viewer.fullSize.width))
+                        : Qt.size(Math.round(viewer.baseEdge * viewer.fullSize.width / viewer.fullSize.height), viewer.baseEdge))
+                    : viewer.fullSize
                 asynchronous: true
                 retainWhileLoading: true
                 // Full sheets are large; keep only the one on screen.
                 cache: false
                 smooth: true
                 mipmap: true
+            }
+
+            Repeater {
+                model: viewer.tiles
+                delegate: Image {
+                    required property var modelData
+                    readonly property real scale: paper.width / viewer.fullSize.width
+                    x: modelData.x * scale
+                    y: modelData.y * scale
+                    width: modelData.w * scale
+                    height: modelData.h * scale
+                    source: "image://sheets/" + viewer.kind + "/" + backend.generation + "/" + backend.sheet + "/"
+                        + viewer.fullSize.width + "x" + viewer.fullSize.height + "/"
+                        + [modelData.x, modelData.y, modelData.w, modelData.h].join(",")
+                    asynchronous: true
+                    smooth: true
+                }
             }
 
             Repeater {

@@ -9,8 +9,8 @@ what changed: removed work in red, added work in green.
 ## What it does
 
 - Opens a PDF drawing set and shows every sheet as a thumbnail.
-- Zooms and pans smoothly on large sheets. The image scales at once and
-  re-renders sharp when the zoom settles.
+- Zooms and pans smoothly on large sheets, sharp at any zoom: past a quick
+  base image, only the visible part renders, in tiles, at full resolution.
 - Compares two revisions. Sheets are paired by their page label (A-101 to
   A-101) when the PDFs label their pages, and by position otherwise.
 - Lines the older revision up first when it was re-plotted with a slight

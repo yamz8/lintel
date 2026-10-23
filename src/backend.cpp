@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QMutexLocker>
 #include <QPdfDocument>
+#include <QPdfDocumentRenderOptions>
 #include <QRegularExpression>
 #include <QtConcurrentRun>
 #include <utility>
@@ -228,35 +229,78 @@ QSize Backend::renderSize(const QSizeF &points, const QSize &requested) {
     return QSize(qMax(1, qRound(size.width())), qMax(1, qRound(size.height())));
 }
 
+namespace {
+
+// Renders the clip of a page drawn at full size. Qt PDF (6.11) scales a
+// clipped render by (width - 1) / width, from QRect::right(); asking for a
+// page that much bigger cancels it, so tiles line up with whole-page renders.
+QImage renderClip(QPdfDocument *document, int page, const QSize &full, const QRect &clip) {
+    if (clip == QRect(QPoint(), full) || clip.width() < 2 || clip.height() < 2)
+        return document->render(page, full);
+    QPdfDocumentRenderOptions options;
+    options.setScaledSize(QSize(qRound(full.width() * clip.width() / (clip.width() - 1.0)),
+                                qRound(full.height() * clip.height() / (clip.height() - 1.0))));
+    options.setScaledClipRect(clip);
+    return document->render(page, clip.size(), options);
+}
+
+}
+
 QImage Backend::render(const QString &id, const QSize &requested) {
+    // "<kind>/<generation>/<sheet>" is a whole sheet within requested;
+    // "<kind>/<generation>/<sheet>/<W>x<H>/<x>,<y>,<w>,<h>" is a tile: that
+    // clip of the sheet drawn W by H pixels.
     const QStringList parts = id.split('/');
-    if (parts.size() != 3)
+    if (parts.size() != 3 && parts.size() != 5)
         return {};
     const QString kind = parts.at(0);
     const int sheet = parts.at(2).toInt();
+    QSize full;
+    QRect clip;
+    if (parts.size() == 5) {
+        const QStringList size = parts.at(3).split('x'), rect = parts.at(4).split(',');
+        if (size.size() != 2 || rect.size() != 4)
+            return {};
+        full = QSize(size[0].toInt(), size[1].toInt());
+        clip = QRect(rect[0].toInt(), rect[1].toInt(), rect[2].toInt(), rect[3].toInt());
+        if (full.isEmpty() || full.width() > 200000 || full.height() > 200000 || clip.isEmpty()
+            || clip.width() > 4096 || clip.height() > 4096)
+            return {};
+    }
 
     const Compare::Alignment alignment = kind == "current" ? Compare::Alignment() : alignmentFor(sheet);
+    // Overlay tiles render a little past their edges, so ink just over the
+    // border still counts when telling moved lines from changed ones.
+    const int pad = kind == "overlay" && parts.size() == 5 ? Compare::defaultTolerance + 2 : 0;
     QImage older, newer;
-    QSize size;
     {
         QMutexLocker locker(&m_lock);
         if (sheet < 0 || sheet >= m_sizes.size())
             return {};
-        // Both revisions render at the current sheet's size, so they line up
-        // pixel for pixel whatever their page sizes in points.
-        size = renderSize(m_sizes.at(sheet), requested);
+        if (full.isEmpty()) {
+            full = renderSize(m_sizes.at(sheet), requested);
+            clip = QRect(QPoint(), full);
+        }
+        const QRect padded = clip.adjusted(-pad, -pad, pad, pad);
         const int match = sheet < m_matches.size() ? m_matches.at(sheet) : -1;
         if (kind == "current" || kind == "overlay")
-            newer = m_current->render(sheet, size);
-        if ((kind == "previous" || kind == "overlay") && match >= 0)
-            older = m_previous->render(match, size);
+            newer = renderClip(m_current, sheet, full, padded);
+        // The older revision draws at its aligned scale and offset, so both
+        // revisions line up pixel for pixel whatever their page sizes.
+        if ((kind == "previous" || kind == "overlay") && match >= 0 && match < m_previous->pageCount()) {
+            const QSize olderFull(qRound(full.width() * alignment.scaleX), qRound(full.height() * alignment.scaleY));
+            const QPoint offset(qRound(alignment.offsetX * full.width()), qRound(alignment.offsetY * full.height()));
+            older = renderClip(m_previous, match, olderFull, padded.translated(-offset));
+        }
     }
     if (kind == "current")
         return newer;
     if (kind == "previous")
-        return older.isNull() ? older : Compare::aligned(older, size, alignment);
-    if (kind == "overlay")
-        return Compare::overlay(Compare::aligned(older, size, alignment), newer);
+        return older;
+    if (kind == "overlay") {
+        const QImage overlay = Compare::overlay(older, newer);
+        return pad ? overlay.copy(pad, pad, clip.width(), clip.height()) : overlay;
+    }
     return {};
 }
 

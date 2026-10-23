@@ -215,6 +215,18 @@ private slots:
         const QImage image = backend.render(QString("current/%1/1").arg(backend.generation()), QSize(600, 600));
         QCOMPARE(image.width(), 600);
         QVERIFY(backend.render("current/0/9", QSize(100, 100)).isNull());
+
+        // A tile matches the same area of a whole-sheet render.
+        const QImage whole = backend.render("current/0/0", QSize(2400, 2400)).convertToFormat(QImage::Format_ARGB32);
+        const QImage tile = backend.render(QString("current/0/0/%1x%2/1000,200,512,512").arg(whole.width()).arg(whole.height()), {})
+                                .convertToFormat(QImage::Format_ARGB32);
+        QCOMPARE(tile.size(), QSize(512, 512));
+        int differing = 0;
+        for (int y = 0; y < 512; ++y)
+            for (int x = 0; x < 512; ++x)
+                differing += qAbs(qAlpha(tile.pixel(x, y)) - qAlpha(whole.pixel(1000 + x, 200 + y))) > 60;
+        QVERIFY2(differing < 512, qPrintable(QString::number(differing)));
+        QVERIFY(backend.render("current/0/0/100x100/0,0,9000,10", {}).isNull());
         QVERIFY(backend.render("nonsense", QSize(100, 100)).isNull());
     }
 
