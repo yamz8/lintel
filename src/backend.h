@@ -23,6 +23,7 @@ class QPdfDocument;
 class Backend : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString fileName READ fileName NOTIFY documentsChanged)
+    Q_PROPERTY(QString filePath READ filePath NOTIFY documentsChanged)
     Q_PROPERTY(QString previousFileName READ previousFileName NOTIFY documentsChanged)
     Q_PROPERTY(int sheetCount READ sheetCount NOTIFY documentsChanged)
     Q_PROPERTY(bool hasPrevious READ hasPrevious NOTIFY documentsChanged)
@@ -51,6 +52,7 @@ public:
     ~Backend() override;
 
     QString fileName() const { return m_fileName; }
+    QString filePath() const { return m_filePath; }
     QString previousFileName() const { return m_previousFileName; }
     int sheetCount() const { return m_labels.size(); }
     bool hasPrevious() const { return !m_previousFileName.isEmpty(); }
@@ -96,6 +98,8 @@ public:
     Q_INVOKABLE void nextSheet() { setSheet(m_sheet + 1); }
     Q_INVOKABLE void previousSheetInSet() { setSheet(m_sheet - 1); }
     Q_INVOKABLE void clearError() { setError({}); }
+    // Shows a problem from elsewhere in the app in the window.
+    void reportError(const QString &message) { setError(message); }
 
     // Thread-safe. id is "<current|previous|overlay>/<generation>/<sheet>",
     // where sheet indexes the current set; requested bounds the image size.
@@ -149,6 +153,7 @@ private:
     int m_alignmentEpoch = 0;
 
     QString m_fileName, m_previousFileName;
+    QString m_filePath;
     int m_generation = 0;
     int m_sheet = 0;
     QString m_mode = "current";

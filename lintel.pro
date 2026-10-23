@@ -9,6 +9,9 @@ HEADERS += \
     src/backend.h \
     src/cli.h \
     src/filepicker.h \
+    src/markuplayer.h \
+    src/markuppainter.h \
+    src/markups.h \
     src/portalfilepicker.h \
     src/sheetimageprovider.h \
     src/theme.h \
@@ -17,6 +20,9 @@ HEADERS += \
 SOURCES += \
     src/main.cpp \
     src/compare.cpp \
+    src/markuplayer.cpp \
+    src/markuppainter.cpp \
+    src/markups.cpp \
     src/backend.cpp \
     src/cli.cpp \
     src/portalfilepicker.cpp \

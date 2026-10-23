@@ -44,6 +44,7 @@ ApplicationWindow {
         target: backend
         function onSheetChanged() {
             win.region = -1
+            viewer.selectedMarkup = -1
             // Runs after the viewer fits the new sheet.
             if (win.pendingRegion !== -2)
                 Qt.callLater(win.showPendingRegion)
@@ -81,6 +82,21 @@ ApplicationWindow {
         backend.sheet = sheet
     }
 
+    // The markup tool in use; "pan" looks around and picks markups.
+    property string tool: "pan"
+
+    function pickTool(next) {
+        tool = next
+        viewer.selectedMarkup = -1
+    }
+
+    function deleteMarkup() {
+        if (viewer.selectedMarkup >= 0) {
+            markupSet.remove(backend.sheet, viewer.selectedMarkup)
+            viewer.selectedMarkup = -1
+        }
+    }
+
     function toggleOverlay() {
         if (backend.hasPrevious)
             showMode(backend.mode === "overlay" ? lastSingleMode : "overlay")
@@ -110,10 +126,30 @@ ApplicationWindow {
     Shortcut { sequence: "Right"; context: Qt.ApplicationShortcut; onActivated: viewer.pan(80, 0) }
     Shortcut { sequence: "Up"; context: Qt.ApplicationShortcut; onActivated: viewer.pan(0, -80) }
     Shortcut { sequence: "Down"; context: Qt.ApplicationShortcut; onActivated: viewer.pan(0, 80) }
+    Shortcut { sequence: "V"; context: Qt.ApplicationShortcut; onActivated: win.pickTool("pan") }
+    Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: win.hasSet; onActivated: win.pickTool("cloud") }
+    Shortcut { sequence: "A"; context: Qt.ApplicationShortcut; enabled: win.hasSet; onActivated: win.pickTool("arrow") }
+    Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: win.hasSet; onActivated: win.pickTool("text") }
+    Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: win.hasSet; onActivated: win.pickTool("measure") }
+    Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: win.hasSet; onActivated: scaleDialog.pick(0) }
+    Shortcut { sequences: [StandardKey.Delete, "Backspace"]; context: Qt.ApplicationShortcut; onActivated: win.deleteMarkup() }
+    Shortcut { sequences: [StandardKey.Undo]; context: Qt.ApplicationShortcut; onActivated: { viewer.selectedMarkup = -1; markupSet.undo() } }
+    Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; context: Qt.ApplicationShortcut; onActivated: { viewer.selectedMarkup = -1; markupSet.redo() } }
+    // Escape steps back one thing at a time: help, then the tool or the
+    // picked markup, then the error.
     Shortcut {
         sequence: "Escape"
         context: Qt.ApplicationShortcut
-        onActivated: win.helpVisible ? win.helpVisible = false : backend.clearError()
+        // Open dialogs close themselves on Escape.
+        enabled: !scaleDialog.visible && !viewer.promptOpen
+        onActivated: {
+            if (win.helpVisible)
+                win.helpVisible = false
+            else if (win.tool !== "pan" || viewer.selectedMarkup >= 0)
+                win.pickTool("pan")
+            else
+                backend.clearError()
+        }
     }
 
     // Right-to-left languages mirror the window; the Translator sets the
@@ -290,7 +326,50 @@ ApplicationWindow {
                         kind: backend.mode === "previous" && win.sheetMissing ? "" : backend.mode
                         regions: win.regions
                         focusedRegion: win.region
+                        tool: win.tool
+                        onCalibrated: (length) => {
+                            win.pickTool("pan")
+                            scaleDialog.pick(length)
+                        }
                     }
+
+                    MarkupTools {
+                        visible: win.hasSet
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.margins: 12
+                        tool: win.tool
+                        onPicked: (next) => win.pickTool(next)
+                        onScaleRequested: scaleDialog.pick(0)
+                    }
+
+                    // What the tool in use does.
+                    Rectangle {
+                        visible: win.hasSet && win.tool !== "pan"
+                        anchors.bottom: parent.bottom
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottomMargin: 12
+                        width: hint.implicitWidth + 24
+                        height: hint.implicitHeight + 12
+                        radius: Math.min(4, theme.radius)
+                        color: "#131316"
+                        border.color: theme.accent
+
+                        Label {
+                            id: hint
+                            anchors.centerIn: parent
+                            font.pixelSize: 12
+                            text: {
+                                switch (win.tool) {
+                                case "cloud": return qsTr("Drag to draw a revision cloud. Esc to stop.")
+                                case "arrow": return qsTr("Drag from the tail to the tip. Esc to stop.")
+                                case "text": return qsTr("Click where the note goes. Esc to stop.")
+                                case "measure": return qsTr("Drag to measure. Esc to stop.")
+                                case "calibrate": return qsTr("Drag along a dimension you know the length of.")
+                                }
+                                return ""
+                            }
+                        }                    }
 
                     // The zoom level, and the overlay's key while it's on.
                     Rectangle {
@@ -301,7 +380,7 @@ ApplicationWindow {
                         width: chip.implicitWidth + 20
                         height: chip.implicitHeight + 12
                         radius: Math.min(4, theme.radius)
-                        color: "#e6131316"
+                        color: "#131316"
                         border.color: "#2a2a30"
 
                         Row {
@@ -312,6 +391,14 @@ ApplicationWindow {
                             Label {
                                 text: qsTr("%1%").arg(win.number(Math.round(viewer.zoom * 100 / viewer.fitZoom)))
                                 color: "#b8b8c0"
+                                font.pixelSize: 12
+                            }
+
+                            Label {
+                                readonly property string scaleLabel: markupSet.revision >= 0 ? markupSet.scaleLabel(backend.sheet) : ""
+                                visible: scaleLabel !== "" || win.tool === "measure"
+                                text: scaleLabel !== "" ? qsTr("Scale %1").arg(scaleLabel) : qsTr("No scale: press S")
+                                color: scaleLabel !== "" ? "#b8b8c0" : "#f0b45a"
                                 font.pixelSize: 12
                             }
 
@@ -508,6 +595,12 @@ ApplicationWindow {
                     onDropped: (event) => backend.loadPrevious(event.urls[0])
                 }
             }
+        }
+
+        ScaleDialog {
+            id: scaleDialog
+            sheet: backend.sheet
+            onCalibrateRequested: win.pickTool("calibrate")
         }
 
         ShortcutHelp {

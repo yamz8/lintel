@@ -61,6 +61,28 @@ ListView {
             }
         }
 
+        // How many markups the sheet has.
+        Rectangle {
+            readonly property int count: markupSet.revision >= 0 ? markupSet.count(entry.index) : 0
+            visible: count > 0
+            anchors.right: thumb.right
+            anchors.top: thumb.top
+            anchors.margins: 4
+            width: Math.max(height, markCount.implicitWidth + 8)
+            height: markCount.implicitHeight + 2
+            radius: height / 2
+            color: "#1E6BFF"
+
+            Label {
+                id: markCount
+                anchors.centerIn: parent
+                text: parent.count
+                color: "white"
+                font.pixelSize: 10
+                font.bold: true
+            }
+        }
+
         Row {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: thumb.bottom

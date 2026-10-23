@@ -7,6 +7,8 @@
 
 #include "backend.h"
 #include "cli.h"
+#include "markuppainter.h"
+#include "markups.h"
 #include "compare.h"
 #include "filepicker.h"
 #include "theme.h"
@@ -359,6 +361,125 @@ private slots:
         QCOMPARE(runCli({"lintel", "compare", current, previous}), 0);
         QVERIFY(isCliCommand("compare"));
         QVERIFY(!isCliCommand("open"));
+    }
+
+    void markupsSaveAndComeBack()
+    {
+        QTemporaryDir dir;
+        const QString pdf = writeSet(dir.filePath("set.pdf"), 3);
+        {
+            Markups markups(dir.filePath("store"));
+            QVERIFY(markups.open(pdf, 3));
+            QVERIFY(markups.add(1, "cloud", {QPointF(10, 10), QPointF(200, 120)}) > 0);
+            QVERIFY(markups.add(1, "text", {QPointF(50, 300)}, "  Verify in field ") > 0);
+            QVERIFY(markups.add(2, "arrow", {QPointF(0, 0), QPointF(90, 90)}) > 0);
+            // Nothing to draw: a click, an unknown type, empty text, no such sheet.
+            QCOMPARE(markups.add(1, "arrow", {QPointF(5, 5), QPointF(5.2, 5)}), -1);
+            QCOMPARE(markups.add(1, "scribble", {QPointF(0, 0), QPointF(9, 9)}), -1);
+            QCOMPARE(markups.add(1, "text", {QPointF(0, 0)}, "  "), -1);
+            QCOMPARE(markups.add(7, "cloud", {QPointF(0, 0), QPointF(9, 9)}), -1);
+            QCOMPARE(markups.total(), 3);
+            QCOMPARE(markups.markedSheets(), QList<int>({1, 2}));
+        }
+
+        // The same file under another name keeps its markups.
+        QVERIFY(QFile::copy(pdf, dir.filePath("renamed.pdf")));
+        Markups markups(dir.filePath("store"));
+        QVERIFY(markups.open(dir.filePath("renamed.pdf"), 3));
+        QCOMPARE(markups.total(), 3);
+        QCOMPARE(markups.forSheet(1).at(1).text, QString("Verify in field"));
+        // New ids never reuse old ones.
+        const int id = markups.add(0, "cloud", {QPointF(0, 0), QPointF(50, 50)});
+        QVERIFY(id > markups.forSheet(2).first().id);
+
+        // A different file has none.
+        Markups other(dir.filePath("store"));
+        QVERIFY(other.open(writeSet(dir.filePath("other.pdf"), 2, 0), 2));
+        QCOMPARE(other.total(), 0);
+    }
+
+    void markupsUndoAndRedo()
+    {
+        QTemporaryDir dir;
+        Markups markups(dir.filePath("store"));
+        QVERIFY(markups.open(writeSet(dir.filePath("set.pdf"), 1), 1));
+        QVERIFY(!markups.canUndo());
+        const int id = markups.add(0, "arrow", {QPointF(0, 0), QPointF(100, 0)});
+        markups.move(0, id, 10, 5);
+        QCOMPARE(markups.forSheet(0).first().points.first(), QPointF(10, 5));
+        markups.undo();
+        QCOMPARE(markups.forSheet(0).first().points.first(), QPointF(0, 0));
+        markups.undo();
+        QCOMPARE(markups.total(), 0);
+        QVERIFY(markups.canRedo());
+        markups.redo();
+        markups.redo();
+        QCOMPARE(markups.forSheet(0).first().points.first(), QPointF(10, 5));
+        markups.remove(0, id);
+        QCOMPARE(markups.total(), 0);
+        QVERIFY(!markups.canRedo());
+    }
+
+    void markupsAreHitNearTheirLines()
+    {
+        QTemporaryDir dir;
+        Markups markups(dir.filePath("store"));
+        QVERIFY(markups.open(writeSet(dir.filePath("set.pdf"), 1), 1));
+        const int cloud = markups.add(0, "cloud", {QPointF(100, 100), QPointF(300, 200)});
+        const int arrow = markups.add(0, "arrow", {QPointF(0, 500), QPointF(400, 500)});
+        QCOMPARE(markups.hitTest(0, QPointF(101, 150), 5), cloud);
+        QCOMPARE(markups.hitTest(0, QPointF(200, 150), 5), -1);  // inside a cloud pans
+        QCOMPARE(markups.hitTest(0, QPointF(200, 503), 5), arrow);
+        QCOMPARE(markups.hitTest(0, QPointF(200, 520), 5), -1);
+    }
+
+    void lengthsParseAndFormat()
+    {
+        QCOMPARE(Markups::parseLength("12'-6\"", "ft"), 12.5);
+        QCOMPARE(Markups::parseLength("12' 6\"", "ft"), 12.5);
+        QCOMPARE(Markups::parseLength("12'", "ft"), 12.0);
+        QCOMPARE(Markups::parseLength("18\"", "ft"), 1.5);
+        QCOMPARE(Markups::parseLength("12.5", "ft"), 12.5);
+        QCOMPARE(Markups::parseLength("3,2", "m"), 3.2);
+        QCOMPARE(Markups::parseLength("3.2 m", "m"), 3.2);
+        QCOMPARE(Markups::parseLength("wall", "ft"), -1.0);
+        QCOMPARE(Markups::parseLength("0", "m"), -1.0);
+
+        const SheetScale eighth{9, "ft", "1/8\" = 1'-0\""};  // 1/8 inch per foot
+        QCOMPARE(Markups::formatLength(eighth, 9 * 12.5), QString("12'-6\""));
+        QCOMPARE(Markups::formatLength(SheetScale(), 100), QString("No scale"));
+
+        QTemporaryDir dir;
+        Markups markups(dir.filePath("store"));
+        QVERIFY(markups.open(writeSet(dir.filePath("set.pdf"), 2), 2));
+        // 1:100 puts a meter on site at 10 mm on paper.
+        QVariantMap metric;
+        for (const QVariant &preset : Markups::presets())
+            if (preset.toMap()["label"] == "1:100")
+                metric = preset.toMap();
+        QCOMPARE(metric["label"].toString(), QString("1:100"));
+        QVERIFY(qAbs(metric["pointsPerUnit"].toDouble() - 28.3465) < 0.001);
+        markups.calibrate(0, 180, 20, "ft", false);
+        QCOMPARE(markups.formatLength(0, 90), QString("10'-0\""));
+        QCOMPARE(markups.formatLength(1, 90), QString("No scale"));
+        markups.setScale(0, metric["pointsPerUnit"].toDouble(), "m", "1:100", true);
+        QCOMPARE(markups.scaleLabel(1), QString("1:100"));
+        QVERIFY(markups.formatLength(1, 283.465).startsWith("10"));
+    }
+
+    void markupsPaintInBlue()
+    {
+        QImage image(400, 300, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QPainter painter(&image);
+        MarkupPainter::paint(&painter, {{1, "cloud", {QPointF(50, 50), QPointF(250, 200)}, {}}}, {}, QSizeF(400, 300));
+        painter.end();
+        int blue = 0;
+        for (int y = 0; y < 300; ++y)
+            for (int x = 0; x < 400; ++x)
+                blue += qBlue(image.pixel(x, y)) > qRed(image.pixel(x, y)) + 60;
+        QVERIFY(blue > 100);
+        QCOMPARE(QColor(image.pixel(150, 125)), QColor(Qt::white));
     }
 
     void themeFallsBack()

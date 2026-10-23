@@ -121,6 +121,7 @@ bool Backend::loadInto(Target target, const QUrl &url) {
         if (target == Target::Current) {
             replaced = std::exchange(m_current, document);
             m_fileName = name;
+            m_filePath = QFileInfo(path).absoluteFilePath();
             m_labels = labels;
             m_sizes = sizes;
         } else {

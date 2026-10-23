@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import Lintel
 
 // One sheet on paper, zoomed and panned. The image on screen scales at once
 // and the sheet re-renders at the new resolution once the zoom settles, so
@@ -51,6 +52,20 @@ Item {
     property var regions: []
     property int focusedRegion: -1
     readonly property bool loading: sheetImage.status === Image.Loading
+
+    // Markup: the tool in use ("pan" to look around and pick markups), and
+    // the markup picked.
+    property string tool: "pan"
+    property int selectedMarkup: -1
+    readonly property real pixelsPerPoint: points.width > 0 ? paper.width / points.width : 1
+    readonly property point origin: Qt.point(paper.x - flick.contentX, paper.y - flick.contentY)
+    readonly property bool promptOpen: textPrompt.visible
+    // A calibration line was drawn, this many points long.
+    signal calibrated(real length)
+
+    function toSheet(x, y) {
+        return Qt.point((x - origin.x) / pixelsPerPoint, (y - origin.y) / pixelsPerPoint)
+    }
 
     function clampZoom(value) { return Math.max(minZoom, Math.min(maxZoom, value)) }
 
@@ -130,6 +145,8 @@ Item {
         anchors.fill: parent
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        // Drawing tools drag on the sheet; only the pan tool drags it around.
+        interactive: viewer.tool === "pan"
         contentWidth: Math.max(width, paper.width + 2 * viewer.margin)
         contentHeight: Math.max(height, paper.height + 2 * viewer.margin)
         onContentXChanged: tileTimer.restart()
@@ -228,6 +245,111 @@ Item {
             onActiveScaleChanged: {
                 const p = viewer.mapFromItem(flick.contentItem, centroid.position.x, centroid.position.y)
                 viewer.zoomAt(startZoom * activeScale, p.x, p.y)
+            }
+        }
+    }
+
+    MarkupLayer {
+        id: layer
+        anchors.fill: flick
+        markups: markupSet
+        sheet: backend.sheet
+        sheetSize: viewer.points
+        origin: viewer.origin
+        pixelsPerPoint: viewer.pixelsPerPoint
+        selected: viewer.selectedMarkup
+    }
+
+    // Picks, moves, and draws markups. A press that misses every markup in
+    // the pan tool falls through to the sheet below, which pans.
+    MouseArea {
+        id: pointer
+        anchors.fill: flick
+        hoverEnabled: true
+        preventStealing: true
+        property bool moving: false
+        property bool overMarkup: false
+        property point start
+        cursorShape: viewer.tool !== "pan" ? Qt.CrossCursor : overMarkup ? Qt.PointingHandCursor : Qt.ArrowCursor
+
+        function hitAt(mouse) {
+            return markupSet.hitTest(backend.sheet, viewer.toSheet(mouse.x, mouse.y), 8 / viewer.pixelsPerPoint)
+        }
+
+        onPressed: (mouse) => {
+            const p = viewer.toSheet(mouse.x, mouse.y)
+            if (viewer.tool === "pan") {
+                viewer.selectedMarkup = hitAt(mouse)
+                if (viewer.selectedMarkup < 0) {
+                    mouse.accepted = false
+                    return
+                }
+                moving = true
+                start = p
+            } else if (viewer.tool === "text") {
+                textPrompt.sheetPoint = p
+                textPrompt.x = Math.min(mouse.x, viewer.width - textPrompt.width - 8)
+                textPrompt.y = Math.max(8, mouse.y - textPrompt.height / 2)
+                textPrompt.open()
+            } else {
+                start = p
+                layer.draft = { type: viewer.tool, points: [p, p] }
+            }
+        }
+        onPositionChanged: (mouse) => {
+            if (!pressed) {
+                overMarkup = viewer.tool === "pan" && hitAt(mouse) >= 0
+                return
+            }
+            const p = viewer.toSheet(mouse.x, mouse.y)
+            if (moving)
+                layer.moveOffset = Qt.point(p.x - start.x, p.y - start.y)
+            else if (layer.draft.points)
+                layer.draft = { type: viewer.tool, points: [start, p] }
+        }
+        onReleased: {
+            if (moving) {
+                markupSet.move(backend.sheet, viewer.selectedMarkup, layer.moveOffset.x, layer.moveOffset.y)
+            } else if (layer.draft.points) {
+                const points = layer.draft.points
+                if (viewer.tool === "calibrate") {
+                    const length = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y)
+                    if (length > 1)
+                        viewer.calibrated(length)
+                } else {
+                    markupSet.add(backend.sheet, viewer.tool, points)
+                }
+            }
+            reset()
+        }
+        onCanceled: reset()
+
+        function reset() {
+            moving = false
+            layer.moveOffset = Qt.point(0, 0)
+            layer.draft = ({})
+        }
+    }
+
+    // Where a text markup's words are typed, at the click.
+    Popup {
+        id: textPrompt
+        property point sheetPoint
+        padding: 6
+        Material.roundedScale: theme.radius
+        background: Rectangle { color: "#17171a"; radius: Math.min(6, theme.radius); border.color: theme.accent }
+        onOpened: {
+            noteField.text = ""
+            noteField.forceActiveFocus()
+        }
+
+        TextField {
+            id: noteField
+            width: 280
+            placeholderText: qsTr("Note, then Enter")
+            onAccepted: {
+                markupSet.add(backend.sheet, "text", [textPrompt.sheetPoint], text)
+                textPrompt.close()
             }
         }
     }

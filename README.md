@@ -20,8 +20,11 @@ what changed: removed work in red, added work in green.
   next changed area, across sheets.
 - Follows the Omarchy theme accent, window rounding, and language live.
 
-Coming later: markup (clouds, arrows, text), measurements with a set scale,
-and exporting marked-up sheets to PDF.
+- Marks up sheets with revision clouds, arrows, notes, and measurements. Set
+  each sheet's scale from the standard architectural and metric scales, or
+  calibrate it by drawing along a dimension you know. Markups save as you
+  go, with undo, in `~/.local/share/lintel/markups/`, keyed by the PDF's
+  contents: the PDF itself is never changed.
 
 ## Usage
 
@@ -64,6 +67,13 @@ set, or on the right half to compare with it.
 | Wheel | Zoom at the pointer |
 | Drag, touchpad scroll | Pan |
 | `Ctrl` + touchpad scroll, pinch | Zoom |
+| `V` | Pan, and pick markups (drag one to move it) |
+| `R` / `A` / `T` | Cloud, arrow, text |
+| `M` | Measure |
+| `S` | Set the sheet's scale |
+| `Delete` | Delete the picked markup |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo and redo |
+| `Esc` | Back to panning |
 | `?` | Show or hide shortcuts |
 | `Q` | Quit |
 

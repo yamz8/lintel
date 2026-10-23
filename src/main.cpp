@@ -11,6 +11,8 @@
 
 #include "backend.h"
 #include "cli.h"
+#include "markuplayer.h"
+#include "markups.h"
 #include "portalfilepicker.h"
 #include "sheetimageprovider.h"
 #include "theme.h"
@@ -66,6 +68,18 @@ int main(int argc, char *argv[]) {
     PortalFilePicker picker;
     Backend backend(&picker);
 
+    // Markups follow whichever set is open.
+    Markups markups;
+    QString markupsFor;
+    QObject::connect(&backend, &Backend::documentsChanged, &markups, [&] {
+        if (backend.filePath() != markupsFor) {
+            markupsFor = backend.filePath();
+            markups.open(markupsFor, backend.sheetCount());
+        }
+    });
+    qmlRegisterType<MarkupLayer>("Lintel", 1, 0, "MarkupLayer");
+    qmlRegisterUncreatableType<Markups>("Lintel", 1, 0, "Markups", "Markups come from the app");
+
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     // The engine owns the provider and deletes it with itself.
@@ -73,6 +87,8 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("backend", &backend);
+    engine.rootContext()->setContextProperty("markupSet", &markups);
+    QObject::connect(&markups, &Markups::failed, &backend, &Backend::reportError);
 
     const QStringList files = parser.positionalArguments();
     if (!files.isEmpty() && backend.load(QUrl::fromUserInput(files.at(0), QDir::currentPath(), QUrl::AssumeLocalFile))
