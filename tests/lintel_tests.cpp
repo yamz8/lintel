@@ -6,6 +6,7 @@
 #include <QtTest>
 
 #include "backend.h"
+#include "cli.h"
 #include "compare.h"
 #include "filepicker.h"
 #include "theme.h"
@@ -333,6 +334,31 @@ private slots:
         backend.openPrevious();
         QCOMPARE(backend.previousFileName(), QString("rev0.pdf"));
         QCOMPARE(backend.fileName(), QString("rev1.pdf"));
+    }
+
+    void renderCommandWritesAPng()
+    {
+        QTemporaryDir dir;
+        const QString current = writeSet(dir.filePath("rev1.pdf"), 2, 1);
+        const QString previous = writeSet(dir.filePath("rev0.pdf"), 2);
+        const QString png = dir.filePath("overlay.png");
+
+        QCOMPARE(runCli({"lintel", "render", current, "--sheet", "2", "--against", previous,
+                         "--width", "600", "-o", png}), 0);
+        const QImage image(png);
+        QCOMPARE(image.width(), 600);
+        // The mark only rev1 has shows in green.
+        bool green = false;
+        for (int y = 0; y < image.height() && !green; ++y)
+            for (int x = 0; x < image.width() && !green; ++x)
+                green = QColor(image.pixel(x, y)) == Compare::addedColor;
+        QVERIFY(green);
+
+        QCOMPARE(runCli({"lintel", "render", current, "--sheet", "9", "-o", png}), 1);
+        QCOMPARE(runCli({"lintel", "render", dir.filePath("missing.pdf"), "-o", png}), 1);
+        QCOMPARE(runCli({"lintel", "compare", current, previous}), 0);
+        QVERIFY(isCliCommand("compare"));
+        QVERIFY(!isCliCommand("open"));
     }
 
     void themeFallsBack()

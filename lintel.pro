@@ -7,6 +7,7 @@ TEMPLATE = app
 HEADERS += \
     src/compare.h \
     src/backend.h \
+    src/cli.h \
     src/filepicker.h \
     src/portalfilepicker.h \
     src/sheetimageprovider.h \
@@ -17,6 +18,7 @@ SOURCES += \
     src/main.cpp \
     src/compare.cpp \
     src/backend.cpp \
+    src/cli.cpp \
     src/portalfilepicker.cpp \
     src/sheetimageprovider.cpp \
     src/theme.cpp \

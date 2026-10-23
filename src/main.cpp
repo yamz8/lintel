@@ -10,12 +10,26 @@
 #include <QUrl>
 
 #include "backend.h"
+#include "cli.h"
 #include "portalfilepicker.h"
 #include "sheetimageprovider.h"
 #include "theme.h"
 #include "translator.h"
 
 int main(int argc, char *argv[]) {
+    // Commands and help draw no window, so they must not need a display, even
+    // where the desktop exports QT_QPA_PLATFORM=wayland. Bare lintel prints
+    // help, as a command line tool should; the launcher says lintel open.
+    const QByteArray first = argc > 1 ? QByteArray(argv[1]) : QByteArray();
+    const bool command = argc == 1 || isCliCommand(QString::fromLocal8Bit(first));
+    bool windowless = command;
+    for (int i = 1; i < argc; ++i) {
+        const QByteArray argument(argv[i]);
+        windowless = windowless || argument == "--help" || argument == "-h" || argument == "--version" || argument == "-v";
+    }
+    if (windowless)
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+
     QGuiApplication app(argc, argv);
     app.setApplicationName("lintel");
     app.setApplicationVersion("0.1.0");
@@ -25,6 +39,9 @@ int main(int argc, char *argv[]) {
     app.setDesktopFileName("lintel");
     app.setWindowIcon(QIcon::fromTheme("lintel"));
 
+    if (command)
+        return runCli(app.arguments());
+
     QQuickStyle::setStyle("Material");
 
     // Installed before anything is translated, and every qsTr() binding is
@@ -33,12 +50,17 @@ int main(int argc, char *argv[]) {
     app.installTranslator(&translator);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QCoreApplication::translate("main", "A fast viewer for construction drawing sets."));
+    parser.setApplicationDescription(QCoreApplication::translate("main", "A fast viewer for construction drawing sets.")
+                                     + "\n\n" + cliSummary());
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument("drawings.pdf", QCoreApplication::translate("main", "The drawing set to open."));
     parser.addPositionalArgument("previous.pdf", QCoreApplication::translate("main", "An older revision to compare it with."));
-    parser.process(app);
+    // "lintel open a.pdf" and "lintel a.pdf" both open the viewer.
+    QStringList arguments = app.arguments();
+    if (arguments.value(1) == "open")
+        arguments.removeAt(1);
+    parser.process(arguments);
 
     Theme theme;
     PortalFilePicker picker;

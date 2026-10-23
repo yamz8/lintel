@@ -26,9 +26,19 @@ and exporting marked-up sheets to PDF.
 ## Usage
 
 ```sh
-lintel                              # then press O, or drop a PDF on the window
-lintel drawings.pdf                 # open a set
-lintel drawings-rev1.pdf drawings-rev0.pdf   # open a set and compare
+lintel open                                     # then press O, or drop a PDF on the window
+lintel open drawings-rev1.pdf drawings-rev0.pdf # open a set and compare
+```
+
+### For scripts and coding agents
+
+These need no display, take `--json`, and exit 0 or 1 with errors on stderr.
+
+```sh
+lintel sheets set.pdf                           # sheet labels and sizes
+lintel compare rev1.pdf rev0.pdf --json         # which sheets changed, and where
+lintel render rev1.pdf --sheet A-101 --against rev0.pdf -o overlay.png
+lintel skill install                            # teach your coding agents to use Lintel
 ```
 
 With a set open, drop a PDF on the left half of the window to open it as the

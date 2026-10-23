@@ -66,6 +66,8 @@ public:
     int changedCount() const;
     int newCount() const;
     int removedCount() const;
+    // Labels of the older revision's sheets that the current set doesn't have.
+    QStringList removedSheets() const;
 
     void setSheet(int sheet);
     void setMode(const QString &mode);

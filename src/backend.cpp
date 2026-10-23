@@ -448,12 +448,17 @@ int Backend::newCount() const {
 }
 
 int Backend::removedCount() const {
+    return int(removedSheets().size());
+}
+
+QStringList Backend::removedSheets() const {
+    QStringList removed;
     if (!hasPrevious())
-        return 0;
-    int count = 0;
+        return removed;
     for (int sheet = 0; sheet < m_previousLabels.size(); ++sheet)
-        count += !m_matches.contains(sheet);
-    return count;
+        if (!m_matches.contains(sheet))
+            removed.append(m_previousLabels.at(sheet).isEmpty() ? QString::number(sheet + 1) : m_previousLabels.at(sheet));
+    return removed;
 }
 
 void Backend::setError(const QString &error) {

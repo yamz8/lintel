@@ -4,6 +4,7 @@
         <file alias="SheetViewer.qml">SheetViewer.qml</file>
         <file alias="SheetStrip.qml">SheetStrip.qml</file>
         <file alias="ShortcutHelp.qml">ShortcutHelp.qml</file>
+        <file alias="skill.md">skill.md</file>
         <file alias="i18n/en.json">i18n/en.json</file>
         <file alias="i18n/da.json">i18n/da.json</file>
         <file alias="i18n/de.json">i18n/de.json</file>
