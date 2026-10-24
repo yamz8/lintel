@@ -207,6 +207,15 @@ void Markups::calibrate(int sheet, qreal points, double length, const QString &u
 
 double Markups::parseLength(const QString &text, const QString &unit) {
     QString value = text.trimmed();
+    // Arabic and Persian keyboards type their own digits and decimal mark.
+    for (QChar &c : value) {
+        if (c.unicode() >= 0x0660 && c.unicode() <= 0x0669)
+            c = QChar('0' + (c.unicode() - 0x0660));
+        else if (c.unicode() >= 0x06F0 && c.unicode() <= 0x06F9)
+            c = QChar('0' + (c.unicode() - 0x06F0));
+        else if (c == QChar(0x066B))
+            c = '.';
+    }
     value.replace(',', '.');
     bool ok = false;
     if (unit == "m") {

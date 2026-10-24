@@ -452,6 +452,8 @@ private slots:
         QCOMPARE(Markups::parseLength("12.5", "ft"), 12.5);
         QCOMPARE(Markups::parseLength("3,2", "m"), 3.2);
         QCOMPARE(Markups::parseLength("3.2 m", "m"), 3.2);
+        QCOMPARE(Markups::parseLength(QString::fromUtf8("۱۲٫۵"), "ft"), 12.5);
+        QCOMPARE(Markups::parseLength(QString::fromUtf8("٣٫٢"), "m"), 3.2);
         QCOMPARE(Markups::parseLength("wall", "ft"), -1.0);
         QCOMPARE(Markups::parseLength("0", "m"), -1.0);
 
@@ -647,15 +649,19 @@ private slots:
     {
         // Every shipped language translates the same strings, so adding a
         // string to one catalog and forgetting another fails here.
-        QFile danish(QFINDTESTDATA("../src/i18n/da.json"));
-        QVERIFY(danish.open(QIODevice::ReadOnly));
-        const QStringList keys = QJsonDocument::fromJson(danish.readAll()).object().keys();
-        QVERIFY(!keys.isEmpty());
-        for (const QString code : {"de"}) {
-            QFile catalog(QFINDTESTDATA(QString("../src/i18n/%1.json").arg(code)));
-            QVERIFY(catalog.open(QIODevice::ReadOnly));
-            QCOMPARE(QJsonDocument::fromJson(catalog.readAll()).object().keys(), keys);
-        }
+        const QDir catalogs(QFINDTESTDATA("../src/i18n"));
+        const QStringList files = catalogs.entryList({"*.json"}, QDir::Files);
+        QVERIFY(files.size() >= 50);
+        auto keysOf = [&](const QString &file) {
+            QFile catalog(catalogs.filePath(file));
+            return catalog.open(QIODevice::ReadOnly)
+                ? QJsonDocument::fromJson(catalog.readAll()).object().keys() : QStringList();
+        };
+        const QStringList keys = keysOf("da.json");
+        QVERIFY(keys.size() > 100);
+        for (const QString &file : files)
+            if (file != "en.json")
+                QVERIFY2(keysOf(file) == keys, qPrintable(file));
     }
 
 private:
